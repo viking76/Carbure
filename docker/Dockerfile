@@ -82,7 +82,7 @@ RUN echo "${CARBURE_VERSION#v}" > VERSION \
 
 # Command run by the synchronization to call woob (its settings live in /data)
 ENV CARBURE_WOOB_PATH="env HOME=/data/woob woob"
-
+ENV SYNC_INTERVAL=86400
 VOLUME /data
 EXPOSE 80
 
