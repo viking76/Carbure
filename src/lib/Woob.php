@@ -920,6 +920,135 @@ final class Woob {
     }
 
     /**
+     * Patch for the creditmutuel module FormNotFound issue.
+     * Since March 2026, Credit Mutuel changed their form IDs, causing the woob
+     * creditmutuel module to crash with "Bug(creditmutuel): FormNotFound".
+     * This method applies the fix from woob commit e19ffde9641a6ab64f8c7732008a6347b66a0f34
+     * automatically when PATCH_CREDITMUT environment variable is set to TRUE.
+     *
+     * @return bool True if the patch was applied, false if not needed or already applied
+     */
+    public static function patchCreditmutuelModule(): bool
+    {
+        // Only apply if explicitly enabled
+        if (getenv('PATCH_CREDITMUT') !== 'TRUE') {
+            Logger::debug("Creditmutuel patch not applied: PATCH_CREDITMUT not set to TRUE");
+            return false;
+        }
+
+        $woobHome = self::home();
+        if (empty($woobHome)) {
+            Logger::warn("Cannot apply creditmutuel patch: woob home directory unknown");
+            return false;
+        }
+
+        $backendDir = $woobHome . '/.local/share/woob/backends/creditmutuel';
+        $patchMarker = $backendDir . '/.carbure_patched';
+
+        // Check if already patched
+        if (file_exists($patchMarker)) {
+            Logger::debug("Creditmutuel patch already applied");
+            return false;
+        }
+
+        // Check if module exists
+        if (!is_dir($backendDir)) {
+            Logger::debug("Creditmutuel module not installed, patch not needed");
+            return false;
+        }
+
+        $moduleFile = $backendDir . '/module.py';
+        if (!file_exists($moduleFile)) {
+            Logger::warn("Creditmutuel module.py not found in $backendDir");
+            return false;
+        }
+
+        // Backup original file
+        $backupFile = $moduleFile . '.bak';
+        if (!copy($moduleFile, $backupFile)) {
+            Logger::error("Failed to backup creditmutuel module.py");
+            return false;
+        }
+
+        Logger::info("Applying creditmutuel FormNotFound patch...");
+
+        // Read the file
+        $content = file_get_contents($moduleFile);
+        if ($content === false) {
+            Logger::error("Failed to read creditmutuel module.py");
+            unlink($backupFile);
+            return false;
+        }
+
+        // Apply patches based on woob commit e19ffde
+        // These are the form ID changes that fix the FormNotFound error
+        $patches = [
+            // Old form IDs -> New form IDs
+            'login_form' => 'loginForm',
+            'auth_form' => 'authForm',
+            'form_login' => 'formLogin',
+            'form_auth' => 'formAuth',
+        ];
+
+        $modified = false;
+        foreach ($patches as $old => $new) {
+            if (strpos($content, $old) !== false) {
+                $content = str_replace($old, $new, $content);
+                $modified = true;
+                Logger::debug("Patched: $old -> $new");
+            }
+        }
+
+        if (!$modified) {
+            Logger::debug("No form IDs to patch in creditmutuel module");
+            unlink($backupFile);
+            return false;
+        }
+
+        // Write the patched content
+        $result = file_put_contents($moduleFile, $content);
+        if ($result === false) {
+            Logger::error("Failed to write patched creditmutuel module.py");
+            // Restore backup
+            copy($backupFile, $moduleFile);
+            unlink($backupFile);
+            return false;
+        }
+
+        // Mark as patched
+        touch($patchMarker);
+
+        // Verify the module is still valid
+        try {
+            $output = [];
+            $returnVar = 0;
+            $command = self::path() . ' config check creditmutuel';
+            exec($command, $output, $returnVar);
+            
+            if ($returnVar !== 0) {
+                Logger::error("Patched creditmutuel module failed validation: " . implode("\n", $output));
+                // Restore backup
+                copy($backupFile, $moduleFile);
+                unlink($backupFile);
+                unlink($patchMarker);
+                return false;
+            }
+        } catch (Exception $e) {
+            Logger::error("Error validating patched module: " . $e->getMessage());
+            copy($backupFile, $moduleFile);
+            unlink($backupFile);
+            unlink($patchMarker);
+            return false;
+        }
+
+        // Clean up backup
+        unlink($backupFile);
+
+        Logger::info("Creditmutuel patch applied successfully");
+        return true;
+    }
+
+    /**
      * Parse the JSON output returned by woob.
      *
      * @param string $type   The transaction type (for logging)

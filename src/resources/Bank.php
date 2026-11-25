@@ -441,6 +441,10 @@ final class Bank {
         if (!preg_match(Woob::MODULE_NAME, $module)) {
             throw new ApiError("Invalid woob module", 400, 'woob_module_invalid');
         }
+        // Apply creditmutuel patch on-demand if enabled
+        if ($module === 'creditmutuel' && getenv('PATCH_CREDITMUT') === 'TRUE') {
+            Woob::patchCreditmutuelModule();
+        }
         return Woob::moduleFields($module);
     }
 

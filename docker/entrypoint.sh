@@ -47,7 +47,22 @@ woob_update() {
         return 1
     fi
 }
+
+# Apply creditmutuel patch after woob update if enabled
+apply_creditmutuel_patch() {
+    if [ "${PATCH_CREDITMUT}" = "TRUE" ]; then
+        # Wait for woob update to complete
+        while kill -0 $woob_pid 2>/dev/null; do
+            sleep 1
+        done
+        # Apply the patch
+        su -s /bin/sh www-data -c "php $APP/tools/patch-creditmutel.php" < /dev/null 2>&1 || true
+    fi
+}
+
 woob_update &
+woob_pid=$!
+apply_creditmutel_patch &
 
 if [ -f /data/conf/prod.ini ]; then
     # Wait for the database, then apply the migrations of the new version (if any);

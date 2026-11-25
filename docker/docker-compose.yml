@@ -29,6 +29,9 @@ services:
       # of the logins, logs). Unset: private networks and loopback; "none": no proxy
       # (Carbure published directly). See docs/securite.md
       # TRUSTED_PROXIES: 172.16.0.0/12
+      # Patch creditmutuel module for FormNotFound issue (set to TRUE to enable)
+      # See: https://gitlab.com/woob/woob/-/issues/829
+      # PATCH_CREDITMUT: TRUE
     volumes:
       - ../data:/data
     depends_on:
