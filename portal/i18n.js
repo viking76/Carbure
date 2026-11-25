@@ -355,3 +355,31 @@ function showLocaleError() {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { i18n, t, apiErrorText, setLocale, loadLocale, translate, resolveText, currentLocale, defaultLocale, intlLocale, serverVersion, serverDemo, serverCurrency, showLocaleError, LOCALES, REFERENCE_LOCALE };
 }
+
+// Export for the browser: attach functions to window for use in ES modules
+if (typeof window !== 'undefined') {
+    window.t = t;
+    window.currentLocale = currentLocale;
+    window.defaultLocale = defaultLocale;
+    window.intlLocale = intlLocale;
+    window.serverVersion = serverVersion;
+    window.serverDemo = serverDemo;
+    window.serverCurrency = serverCurrency;
+    window.setLocale = setLocale;
+    window.loadLocale = loadLocale;
+    window.apiErrorText = apiErrorText;
+    window.showLocaleError = showLocaleError;
+    window.translate = translate;
+    window.resolveText = resolveText;
+    window.formatText = formatText;
+    window.i18nDebug = i18nDebug;
+    window.reportMissing = reportMissing;
+    window.fallbackChain = fallbackChain;
+    window.lookup = lookup;
+    window.pluralCount = pluralCount;
+    window.pluralCategory = pluralCategory;
+    window.LOCALES = LOCALES;
+    window.REFERENCE_LOCALE = REFERENCE_LOCALE;
+    window.i18n = i18n;
+    window.i18nState = i18nState;
+}

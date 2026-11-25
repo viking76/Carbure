@@ -140,14 +140,14 @@ const app = createApp({
             // Menu of the bottom navigation on a phone: the tabs and actions not in the bar
             showNavDrawer: false,
             // Language of the texts loaded by loadLocale() (i18n.js)
-            locale: currentLocale(),
+            locale: window.currentLocale(),
             apiBaseUrl: API_BASE_URL,
             // Version of Carbure (GET /api/health, asked by loadLocale()), shown in the footer
-            appVersion: serverVersion(),
+            appVersion: window.serverVersion(),
             // Demonstration instance (GET /api/health): its public account, null otherwise
-            demoAccount: serverDemo() ? DEMO_ACCOUNT : null,
+            demoAccount: window.serverDemo() ? DEMO_ACCOUNT : null,
             // Currency of the amounts of the instance (GET /api/health: setting currency)
-            currency: serverCurrency(),
+            currency: window.serverCurrency(),
             // Money flow of the selected month (Budget tab)
             budgetFlow: null,
             // Node of the flow diagram whose transactions are shown, and these transactions
@@ -194,7 +194,7 @@ const app = createApp({
          * @returns {string}
          */
         intlLocale() {
-            return intlLocale(this.locale);
+            return window.intlLocale(this.locale);
         },
 
         /**
@@ -231,7 +231,7 @@ const app = createApp({
         months() {
             return this.periodKeys.filter(key => Math.floor(key / 100) === Number(this.selectedYear))
                 .map(key => key % 100).reverse()
-                .map(value => ({ value, label: t(`months.${value}`) }));
+                .map(value => ({ value, label: window.t(`months.${value}`) }));
         },
 
         /**
@@ -321,7 +321,7 @@ const app = createApp({
          * @returns {string}
          */
         t(key, params = {}) {
-            return t(key, params);
+            return window.t(key, params);
         },
 
         /**
@@ -331,7 +331,7 @@ const app = createApp({
          * @returns {string}
          */
         apiErrorText(error) {
-            return apiErrorText(error);
+            return window.apiErrorText(error);
         },
 
         /**
@@ -339,10 +339,10 @@ const app = createApp({
          * @param {string} newLocale - New locale code (one of LOCALES, i18n.js)
          */
         changeLocale(newLocale) {
-            setLocale(newLocale);
+            window.setLocale(newLocale);
             this.locale = newLocale;
             // Screen readers pronounce the page in its language
-            document.documentElement.lang = intlLocale(newLocale);
+            document.documentElement.lang = window.intlLocale(newLocale);
         },
 
         /**
@@ -896,7 +896,7 @@ const app = createApp({
 
 // The texts of the language (i18n/<locale>.json) are loaded before the first render: the
 // page stays hidden until then (v-cloak), a minimal message replaces it if they cannot be
-loadLocale().then(() => app.mount('#app'), error => {
+window.loadLocale().then(() => app.mount('#app'), error => {
     console.error('Error loading the translations:', error);
-    showLocaleError();
+    window.showLocaleError();
 });
