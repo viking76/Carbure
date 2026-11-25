@@ -53,7 +53,7 @@ Deux profils existent :
 | Profil | Onglets |
 |---|---|
 | **Utilisateur** | Transactions, Budget, Insights, Tendances, Tags ; **Agent IA** et **Mon profil** dans le menu utilisateur |
-| **Administrateur** | En plus : Règles, Comptes, et le menu **Administration** (Utilisateurs, Catégories, Synchro, Push mobile, Agent IA, Logs, Paramètres, Sauvegarde, API) ; ajout et modification des insights ; activation du serveur MCP ; mise à jour de la base de données |
+| **Administrateur** | En plus : Règles, Comptes, et le menu **Administration** (Utilisateurs, Catégories, Synchro, Push mobile, Agent IA, Logs, Paramètres, Sauvegarde, Purge, API) ; ajout et modification des insights ; activation du serveur MCP ; mise à jour de la base de données |
 
 Les pages d'administration (Règles, Catégories, Comptes, Utilisateurs) et les onglets
 Insights et Agent IA suivent la même présentation : un en-tête avec le titre et l'aide, et
@@ -136,13 +136,19 @@ tâches ou l'écran d'accueil.
   type d'opération si elles ne sont pas catégorisées), libellé, date et montant.
 - **Pointage** : le bouton rond à gauche de chaque transaction la marque comme vérifiée
   (coche verte) ou non vérifiée. Les transactions non vérifiées sont en gras.
-- **Filtre** : à côté du nombre de transactions, un interrupteur limite la liste aux
-  transactions non vérifiées (avec leur nombre).
+- **Filtres** : à côté du nombre de transactions, un interrupteur limite la liste aux
+  transactions non vérifiées, un autre aux transactions **sans catégorie** du mois (chacun
+  avec leur nombre) ; ils se combinent. Une transaction catégorisée quitte aussitôt la
+  liste filtrée.
 - **Transactions récurrentes** : celles retrouvées chaque mois (salaire, loyer,
-  abonnements, factures, `GET /transaction/recurring`) portent le badge « Mensuelle ». Un
-  second interrupteur n'affiche qu'elles et liste celles qui ne sont pas encore arrivées
-  (« Attendues ce mois-ci », avec leur jour habituel et leur montant, « ≈ » s'il varie ;
-  « Absentes ce mois-ci » pour un mois passé). Il n'apparaît pas pendant une recherche.
+  abonnements, factures, `GET /transaction/recurring`) portent le badge « Mensuelle ». Leur
+  barre, en haut de la liste comme celle de la sélection, est repliée par défaut (leur
+  nombre seul) ; son chevron la déplie, choix retenu par le navigateur : reçues et
+  attendues, « Total des transactions récurrentes », et un interrupteur qui
+  n'affiche qu'elles et liste celles qui ne sont pas encore arrivées (« Attendues ce
+  mois-ci », avec leur jour habituel et leur montant, « ≈ » s'il varie ; « Absentes ce
+  mois-ci » pour un mois passé). La replier retire ce filtre. La barre n'apparaît pas
+  pendant une recherche.
 - **Calendrier des récurrentes** : le bouton **Calendrier** ouvre le mois affiché en
   calendrier (semaines du lundi au dimanche, aujourd'hui en couleur). Chaque transaction
   récurrente y est placée au jour de son arrivée (« Reçue », un clic ouvre son détail) ou
@@ -152,16 +158,30 @@ tâches ou l'écran d'accueil.
   des récurrentes.
 - **Recherche** : le champ de recherche (2 caractères minimum) interroge
   `GET /transaction/search` sur tous les mois et affiche le **total** des transactions
-  trouvées ; le filtre s'applique aussi aux résultats. La croix efface la recherche.
+  trouvées ; les filtres (non vérifiées, sans catégorie) s'appliquent aussi aux résultats. La croix efface la recherche.
 - **Catégorisation manuelle** : une transaction sans catégorie propose un sélecteur
-  « Catégoriser… » (icônes, couleurs, recherche) ; la transaction est aussi pointée. Pour un administrateur, un bandeau
+  « Catégoriser… » (icônes, couleurs, recherche) ; la transaction est aussi pointée. Ce
+  sélecteur, comme ceux du détail, de la saisie manuelle et de la répartition, présente
+  d'abord les catégories du sens de la transaction (revenus pour un crédit, dépenses pour
+  un débit), puis les catégories hors budget, puis les autres (un remboursement est un
+  crédit sur une catégorie de dépense). Pour un administrateur, un bandeau
   propose ensuite de **créer une règle** pour classer automatiquement ce libellé : il ouvre
   l'onglet Règles avec le libellé et la catégorie pré-remplis, le mot-clé pouvant être
   raccourci (dates, numéros de carte…).
+  En mode **Sélectionner**, chaque transaction cochée affiche ce sélecteur : la catégorie
+  choisie sur l'une d'elles est appliquée à toutes les transactions cochées (elles sont
+  aussi pointées ; pas de règle proposée), et la sélection reste.
 - **Détail d'une transaction** : un clic (ou Entrée) sur le libellé ouvre une fenêtre avec
   le montant, le libellé complet, les dates, le type, la carte, la banque (compte synchronisé
   ou relevé importé) et la date d'import ; la
-  catégorie s'y change avec le sélecteur visuel et la transaction s'y pointe. Le bouton
+  catégorie s'y change avec le sélecteur visuel et la transaction s'y pointe. Le champ
+  **Date comptée** change le mois où la transaction compte, synchronisée ou non (la date
+  réelle de la banque reste affichée et ne change pas) : à l'enregistrement, la liste, les
+  totaux et les mois proposés sont rechargés, la transaction passe dans son nouveau mois et
+  les synchronisations suivantes gardent cette date. Le champ **Commentaire** (texte libre,
+  500 caractères, vide pour le retirer), dernier champ de la fenêtre, est enregistré avec le reste ; un commentaire
+  s'affiche sous la date de la transaction dans les listes (une ligne, texte complet au
+  survol). Le bouton
   corbeille supprime la transaction, après confirmation : elle n'est plus réimportée, ni par
   la synchronisation ni par l'import d'un relevé (marquée « Supprimée » dans l'aperçu).
   Le bouton **Transactions similaires** ferme la fenêtre et lance la recherche avec le
@@ -169,11 +189,13 @@ tâches ou l'écran d'accueil.
   commerçant (numéro de carte, date, référence de mandat) : « PRLV SEPA EDF MDT/123 »
   cherche « EDF ». La recherche s'efface ensuite avec la croix, comme une recherche saisie.
 - **Saisir une transaction à la main** : le bouton **Ajouter** ouvre un formulaire
-  (compte manuel, dépense ou revenu, montant, date, libellé, catégorie facultative : sinon
-  celle des règles). Pratique pour une dépense en espèces ; tout utilisateur peut en saisir.
-  La transaction est pointée, et reste modifiable depuis son détail (bouton **Modifier** :
-  date, libellé, montant). Il faut d'abord qu'un administrateur ait créé un **compte
-  manuel** dans l'onglet Comptes ; sinon le formulaire l'explique.
+  (compte, dépense ou revenu, montant, date, libellé, catégorie facultative : sinon celle
+  des règles ; commentaire facultatif, en dernier). Pratique pour une dépense en espèces ; tout utilisateur peut en saisir. Le
+  compte se choisit parmi tous ceux du foyer : les **comptes manuels** d'abord (le premier
+  est proposé), puis les comptes synchronisés. Sur un compte synchronisé, le formulaire
+  rappelle que la banque peut envoyer plus tard la même transaction : supprimer alors le
+  doublon. La transaction est pointée, n'est jamais écrasée par la synchronisation, et reste
+  modifiable depuis son détail (bouton crayon **Modifier**, à côté de la poubelle : date, libellé, montant, commentaire).
 - **Répartir une transaction** sur plusieurs catégories : dans son détail, le bouton
   icône **Répartir** ouvre une fenêtre avec une ligne par part (catégorie et montant, saisi
   sans signe : il prend celui de la transaction ; 10 parts au plus). Le **reste**, recalculé
@@ -183,15 +205,18 @@ tâches ou l'écran d'accueil.
   transaction, en retrait, avec le badge **Part** ; la transaction rappelle le **total**
   de la banque. Le total du mois ne change pas, et chaque part compte dans sa catégorie
   (budgets, tendances, flux, insights). Rouvrir **Répartir** (depuis la transaction ou une
-  de ses parts) modifie les parts ; **Annuler la répartition** rend tout le montant à la
-  transaction ; supprimer une part lui rend son montant. La synchronisation conserve la
+  de ses parts) modifie les parts ; la corbeille rouge en bas à gauche (**Supprimer la
+  répartition**) rend tout le montant à la transaction ; supprimer une part lui rend son montant. La synchronisation conserve la
   répartition et les règles ne la modifient pas.
 - **Tags** : les transactions étiquetées portent leurs puces `#tag` sous leur libellé.
   - Dans le **détail**, la section Tags liste ceux de la transaction (la croix en retire
-    un) et propose d'**ajouter** un tag actif.
-  - **Sélectionner** (barre d'outils, quand un tag est actif) affiche une case par
-    transaction et une barre « n sélectionnées » : on choisit le tag puis **Ajouter le
-    tag**, pour toutes les transactions cochées d'un coup.
+    un) ; son champ **Saisir un tag…** complète le nom tapé avec les tags actifs (flèches
+    pour se déplacer, Entrée ou clic pour ajouter) et propose **Créer #nom** pour un nom
+    nouveau. Le champ se vide aussitôt, prêt pour le tag suivant. Sans tag actif, un lien
+    mène à l'onglet Tags.
+  - **Sélectionner** (barre d'outils) affiche une case par transaction et une barre
+    « n sélectionnées » avec le même champ : le tag choisi y reste affiché, puis
+    **Appliquer le tag** l'ajoute à toutes les transactions cochées d'un coup.
   - La **recherche** `#voyage-italie` liste les transactions de ce tag, tous mois
     confondus.
 - **Importer un relevé** : le bouton « Importer » ouvre une fenêtre où déposer le fichier
@@ -202,6 +227,9 @@ tâches ou l'écran d'accueil.
   avec un autre libellé : non cochée) ou **déjà présente** (même identifiant : ignorée).
   Chaque transaction a sa case : décocher celles à ne pas importer (ou « Tout cocher » pour
   tout cocher ou décocher) ; le bouton indique le nombre de transactions importées.
+  La liste **Compte des transactions** rattache le fichier à un compte du foyer (manuel ou
+  synchronisé) ; elle propose d'office le compte dont le numéro est lu dans le fichier,
+  sinon le numéro du fichier est gardé tel quel.
   Les transactions importées appartiennent à l'utilisateur connecté et passent par les
   règles de catégorisation ; la liste s'ouvre ensuite sur le dernier mois importé
   (`POST /transaction/import/preview`, `POST /transaction/import`). Aucun compte synchronisé
@@ -229,17 +257,26 @@ Deux sous-onglets : **Flux** (affiché par défaut) et **Budgets**.
   gauche à droite à mesure que le budget est consommé (vert jusqu'à 105 % du budget, rouge
   au-delà). Le budget d'une catégorie parente précédé de « Σ » est la somme de ses
   sous-catégories.
-- Sections séparées : **dépenses budgétées**, **revenus**, **hors budget et sans
-  activité**.
+- Sections séparées : **dépenses budgétées**, **revenus**, **sans budget et hors
+  budget**. Une catégorie de dépense sans budget (montant à 0) y montre ce qu'elle a
+  dépensé, sans jauge ni dépassement, et ne compte pas dans la synthèse.
 - **Clic sur une catégorie** : liste de ses transactions du mois (sous-catégories
   comprises) avec leur total et le pointage ; si elle a des sous-catégories, leurs
-  cartes s'affichent, avec un fil d'Ariane pour remonter.
+  cartes s'affichent, avec un fil d'Ariane pour remonter. Les transactions rangées
+  directement sur la catégorie parente ont leur propre carte, « *Catégorie* (hors
+  sous-catégories) », sans budget : le total de la catégorie se retrouve dans ses cartes.
 - Bouton de réglage d'une carte : modification du montant budgété pour le mois. Pour une
-  catégorie parente, la case **Somme des sous-catégories** utilise leur somme ; décochée,
-  le montant saisi la remplace.
+  catégorie sans sous-catégorie, la case **Pas de budget pour cette catégorie** enregistre
+  un budget à 0. Pour une catégorie parente, la case **Somme des sous-catégories** utilise leur somme ; décochée,
+  le montant saisi la remplace. Le champ **Note** garde un pense-bête de ce que couvre le
+  budget (200 caractères au plus), affiché sous les montants de la carte et recopié avec
+  le budget au mois suivant ; le vider supprime la note.
 - **Recopier les budgets du mois précédent** : le bouton au-dessus de la synthèse reprend
   les budgets du mois précédent (`POST /budget/copy`), en complétant seulement les
-  catégories sans budget ou en écrasant le mois affiché.
+  catégories sans budget ou en écrasant le mois affiché. Il n'apparaît que si le mois
+  affiché n'a aucun budget et que le mois précédent en a (`GET /budget/copy`) ; il est
+  réévalué au changement de mois, après un réglage, après la recopie et quand un autre
+  membre du foyer modifie les budgets.
 
 ## Insights
 
@@ -251,9 +288,17 @@ principaux. Le bouton **+** ouvre la liste des insights masqués, chacun affich�
 foyer, et un insight masqué n'est plus calculé. Le bouton **+** n'apparaît pour un
 utilisateur que s'il y a des insights masqués.
 
+Les cartes se **réorganisent par glisser-déposer** sur une grille aimantée : la poignée
+(**⋮⋮**, en bas de chaque carte) se glisse à la souris, au stylet ou au doigt ; la carte se
+soulève et se cale dans la case sous le pointeur, les autres glissent pour lui faire place.
+Au clavier, la poignée déplace sa carte avec les **flèches** (case précédente ou suivante),
+**Début** et **Fin** ; sa nouvelle place est annoncée aux lecteurs d'écran. L'ordre est
+enregistré au lâcher, pour tout le foyer (`PUT /insight/order`) ; un nouvel insight se
+place à la fin.
+
 La **cloche** d'une carte règle l'alerte de l'utilisateur sur cet insight : **au-dessus** ou
 **en dessous** d'un montant, comparé à la valeur du mois sans son signe. La carte rappelle
-l'alerte posée et la cloche se remplit ; **Supprimer l'alerte** la retire. Les canaux se
+l'alerte posée et la cloche se remplit ; la corbeille rouge en bas à gauche (**Supprimer l'alerte**) la retire. Les canaux se
 choisissent dans **Mon profil → Notifications** (« Alerte d'un insight », désactivée par
 défaut). Voir [Alertes des insights](fonctionnalites.md#alertes-des-insights).
 
@@ -270,7 +315,9 @@ Des exemples de requêtes sont dans [Recettes d'insights](insights.md).
 
 ![Écran Tendances du portail web Carbure](assets/screenshot-trends.webp)
 
-- Période de **3, 6 ou 12 mois** se terminant au mois courant.
+- Période de **3, 6, 12, 24, 36 ou 60 mois** se terminant au mois courant, ou
+  **Personnalisée** : du mois choisi au mois choisi (mois courant au plus tard, 240 mois au
+  plus). Au-delà de 12 mois, l'axe n'affiche qu'une partie des mois, puis les années.
 - **Comparer à** : sans comparaison, la période précédente ou la même période l'an
   dernier.
 - **Chiffres clés** : épargne cumulée, épargne moyenne par mois, taux d'épargne,
@@ -284,6 +331,19 @@ Des exemples de requêtes sont dans [Recettes d'insights](insights.md).
   sous-catégories, moins les retraits (barres bleues, rouges pour un mois de retrait net).
   Le nom de la catégorie se règle avec `savings_category` (casse et accents ignorés). Le
   taux d'épargne est `épargne / revenus`.
+- **Par catégorie** : toutes les catégories d'un type (sélecteur Dépenses, Revenus, Hors
+  budget) sur un même graphique, catégories principales (sous-catégories incluses) ou
+  sous-catégories. Une pastille par catégorie, de la plus grosse à la plus petite, la masque
+  ou la réaffiche ; **Tout** et **Aucun** les affichent ou les masquent toutes. Boutons
+  **Lignes**, **Barres** (empilées) et **Aires** (empilées) ; l'échelle couvre les
+  catégories affichées, l'infobulle donne le montant de chacune et leur total. Ces choix
+  sont retenus par le navigateur.
+- **Graphiques personnalisés** : un graphique par catégorie (sous-catégories incluses),
+  sous-catégorie ou insight choisi, en barres, lignes ou aires mensuelles (le choix de la
+  carte Par catégorie) avec la moyenne de la période, le
+  budget prévu (catégories) et une infobulle au survol. Les administrateurs les ajoutent
+  (**Ajouter un graphique**, 12 au plus), les déplacent et les retirent ; la liste est
+  partagée par le foyer.
 - Vue **tableau** des données mois par mois.
 
 ## Tags
@@ -292,21 +352,35 @@ Un **tag** suit le coût global d'un projet (un voyage, des travaux, un mariage�
 toucher aux catégories : chaque transaction garde la sienne, les budgets et les tendances
 ne changent pas. Tous les utilisateurs du foyer créent et utilisent les tags.
 
-- **Liste** : les tags **actifs**, puis les **archivés**, chacun avec sa couleur, sa période,
-  son nombre de transactions et son coût net. Les boutons crayon et corbeille le modifient
-  ou le suppriment (ses transactions perdent seulement ce tag).
+- **Liste** : les tags **actifs**, puis les **archivés** (avec leur nombre), une carte par
+  tag : sa couleur en bordure, son nom, sa période, une barre du temps écoulé pour un tag
+  actif qui a une date de fin, la mention **Archivé** sinon, son nombre de transactions et
+  son coût net. Un clic sur la carte ouvre son bilan ; les boutons crayon et corbeille le
+  modifient ou le suppriment (ses transactions perdent seulement ce tag). Sans aucun tag,
+  la liste explique comment en créer un.
 - **Nouveau tag** : un nom (`voyage-italie` : lettres, chiffres, `-` ou `_`, 40 au plus, le
   `#` est ajouté à l'affichage), une couleur, une date de début et une date de fin
   facultative. Pendant sa période, le tag est **actif** : il est proposé dans le détail
   des transactions et la sélection. Après sa fin, il est **archivé** : il n'est plus
   proposé, mais reste dans la liste avec son bilan.
 - **Bilan** (un clic sur un tag) :
-  - le **coût net** du projet (remboursements déduits) et le nombre de transactions ;
-  - une barre **par catégorie**, à la couleur de la catégorie, les plus grosses dépenses
-    d'abord ;
-  - la courbe du **coût cumulé jour par jour** (la valeur de chaque jour au survol), avec
-    le **tableau des valeurs** sous la courbe ;
-  - la liste de ses **transactions**, avec leur catégorie habituelle.
+  - l'en-tête : le tag à sa couleur, son **statut** (actif ou archivé), sa **période**
+    (début – fin, ou « en cours ») et les boutons **Modifier le tag** et
+    **Voir dans Transactions** ;
+  - quatre chiffres clés : le **coût net** du projet (remboursements déduits) et son nombre
+    de transactions, les **dépenses** (avec le total des **remboursements**), le coût
+    **par jour** sur la période (jusqu'à aujourd'hui tant qu'elle court) et la
+    **plus grosse dépense** ;
+  - la courbe du **coût cumulé jour par jour**, en marches depuis zéro, avec ses axes
+    (montants, dates) : la valeur d'un jour s'affiche au survol, ou au clavier une fois
+    la courbe sélectionnée (flèches gauche et droite, Début, Fin) ; le
+    **tableau des valeurs** reste sous la courbe ;
+  - une barre **par catégorie**, avec l'icône et la couleur de la catégorie, son montant,
+    son nombre de transactions et sa **part** du total, les plus gros montants d'abord ;
+  - la liste de ses **transactions**, comme dans l'onglet Transactions, avec leur
+    catégorie habituelle ;
+  - sur un écran large, la courbe et les catégories sont côte à côte ; sur un téléphone,
+    l'une sous l'autre.
 - **Voir dans Transactions** ouvre l'onglet Transactions sur la recherche `#nom` du tag.
 - Les parts d'une transaction répartie reprennent ses tags, puis s'étiquettent à part :
   seule la part du restaurant d'un ticket peut appartenir au voyage.
@@ -342,7 +416,8 @@ la catégorie choisie.
 
 Arborescence des catégories (un niveau de sous-catégories) regroupée par type (dépenses,
 revenus, hors budget). **+** ajoute une catégorie, le crayon la modifie (dans une modale),
-la corbeille la supprime. L'icône et la couleur se choisissent parmi celles que
+la corbeille la supprime. Le **+** d'une ligne de catégorie principale ajoute une
+sous-catégorie : la modale s'ouvre avec ce parent et son type déjà choisis. L'icône et la couleur se choisissent parmi celles que
 les applications mobiles savent afficher, avec un aperçu. Supprimer une catégorie fait passer ses
 transactions en « Non catégorisé » et supprime ses budgets et règles ; une catégorie qui a
 des sous-catégories ne peut pas être supprimée. La catégorie « Non catégorisé » (0) est
@@ -350,15 +425,25 @@ protégée.
 
 ## Comptes (administrateurs)
 
-La page est organisée par banque : chaque **banque connectée** (en-tête avec son nom et
+La page a deux blocs : **Comptes synchronisés** (avec woob) et **Comptes manuels**. La
+synchronisation, la mise à jour des modules bancaires et le bouton rond **+** (ajout d'une
+banque ou de comptes) ne concernent que le premier.
+
+Les comptes synchronisés sont organisés par banque : chaque **banque connectée** (en-tête avec son nom et
 ses actions) présente juste en dessous, en retrait, les **comptes suivis** qui en
 viennent ; une banque sans compte suivi l'indique (« Aucun compte suivi : ajoutez des
 comptes de cette banque »). Les comptes d'une banque qui n'est plus connectée dans woob,
 ou importés depuis un fichier, sont regroupés à la fin sous **Autres comptes**.
 
-Les **comptes manuels** ont leur propre section, sous les banques : un compte jamais
+Le bouton rond **+** des comptes synchronisés (**Ajouter une banque ou des comptes**) ajoute
+des comptes d'une **banque déjà connectée** : on choisit la banque (directement ses comptes
+s'il n'y en a qu'une), puis on coche ses comptes à suivre. Le dernier choix de la liste,
+**Connecter une nouvelle banque…**, ouvre la connexion d'une banque, aussi ouverte
+directement quand aucune banque n'est connectée.
+
+Les **comptes manuels** ont leur propre bloc : un compte jamais
 synchronisé (espèces, banque que woob ne gère pas), dont les transactions sont saisies à
-la main dans l'onglet Transactions. **Ajouter un compte manuel** demande un nom (« Espèces »)
+la main dans l'onglet Transactions. Son bouton rond **+** (**Ajouter un compte manuel**) demande un nom (« Espèces »)
 et, en option, un numéro (par exemple l'IBAN sans espaces). Il se renomme et se supprime
 comme les autres comptes ; il n'a pas de bouton de synchronisation.
 
@@ -373,7 +458,7 @@ comme les autres comptes ; il n'a pas de bouton de synchronisation.
   la synchronisation de tous les comptes suivis, avec le même suivi en direct qu'un compte
   seul.
 - **Ajout en deux étapes** :
-    1. **Connecter une banque** (fenêtre modale) : choisir la banque parmi celles que
+    1. **Connecter une banque** (fenêtre modale, depuis le bouton **+**) : choisir la banque parmi celles que
        woob supporte ; le formulaire demande les identifiants attendus par son module woob
        (numéro client, code, type de compte…), que **Connecter la banque** confie à woob
        (Carbure ne les enregistre ni ne les journalise). Une banque déjà connectée reste
@@ -462,7 +547,7 @@ Liste des utilisateurs avec leur **profil** (Utilisateur ou Administrateur) et l
 **dernière connexion** ; un compte bloqué après trop d'échecs de connexion affiche
 « Bloqué jusqu'au … » et un bouton **Débloquer**. **+** crée un utilisateur ; le crayon le
 modifie (dont son profil) ; la corbeille le supprime. Le bouton **Réinitialiser la double
-authentification** (après confirmation) supprime l'application, les codes de secours et
+authentification** (après une confirmation qui en rappelle les conséquences, bouton **Réinitialiser**) supprime l'application, les codes de secours et
 les navigateurs de confiance d'un utilisateur qui a perdu son téléphone. Le dernier administrateur ne peut
 pas perdre son rôle, et un utilisateur propriétaire de transactions ne peut pas être
 supprimé.
@@ -482,7 +567,7 @@ Le fichier de configuration (`data/conf/prod.ini`) section par section,
 avec une description de chaque réglage. Les secrets (`db_password`, `jwtsecret`,
 `password_salt`, `sync_token`…) ne sont jamais affichés. Seuls les réglages sans risque
 sont modifiables — `log_level`, `log_retention_days`, `savings_category`, `public_url`, `mfa_required` (double authentification imposée), `woob_transactions`,
-`woob_logging`, `woob_debug`, `woob_auto_update`, le service de notifications push
+`woob_logging`, `woob_debug`, `woob_auto_update`, `woob_relabel`, le service de notifications push
 (`push_api_key`, avec la clé de l'instance affichée à la demande) et le serveur SMTP des emails — avec des
 listes, des interrupteurs et des champs vérifiés par le serveur ; les autres portent un
 cadenas. Les réglages modifiés sont surlignés ; la barre du bas les enregistre ou les
@@ -543,6 +628,23 @@ cet onglet ; voir [Configuration](configuration.md#push).
   conservés ; le propriétaire d'une transaction est retrouvé par son identifiant de
   connexion, à défaut c'est l'administrateur qui importe. Les alertes des insights d'un
   utilisateur inconnu ne sont pas importées.
+
+## Purge (menu Administration)
+
+Pour repartir de zéro, l'onglet **Purge** supprime toutes les lignes des données cochées
+(mêmes données que la sauvegarde), chacune avec son nombre de lignes. Les données qui
+dépendent d'une donnée cochée sont cochées avec elle et ne peuvent pas être décochées :
+purger les catégories purge aussi les règles, les budgets et les transactions (et leurs
+tags) ; purger les transactions ou les tags purge les tags des transactions ; purger les
+insights purge leurs alertes. La catégorie par défaut est conservée, ainsi que les comptes
+bancaires, les utilisateurs et les réglages : une synchronisation récupère à nouveau les
+transactions.
+
+**Purger** demande une confirmation qui rappelle le nombre de lignes supprimées : la purge
+est **définitive**, faites d'abord une sauvegarde (bouton **Sauvegarder d'abord**). La
+purge n'est acceptée que **depuis le réseau local** : derrière un reverse proxy, une
+adresse publique dans `X-Forwarded-For`, `X-Real-IP` ou `Forwarded` la refuse, et l'onglet
+le signale.
 
 ## API (menu Administration)
 

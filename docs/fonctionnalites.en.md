@@ -96,7 +96,8 @@ For each followed account:
    told apart by their rank.
 4. **Month of attribution**: a **received transfer dated on the 25th or later** is attributed
    to the **1st of the following month** (a salary paid on the 28th counts for the month it
-   funds); the actual date remains visible in the transaction details. The day is set in
+   funds); the actual date remains visible in the transaction details, where the date it is
+   counted on can also be changed by hand (the next synchronizations no longer change it). The day is set in
    **Administration → Settings** (`next_month_day`, 1 to 31, 0 to never move a transfer, see
    [Configuration](configuration.md#global)).
 5. **Notifications**: see [Notifications](#notifications).
@@ -130,20 +131,40 @@ transactions of the last month still without a category.
   with the total of the transactions found. The **advanced search** (button inside the
   field) adds criteria:
   expenses or incomes, smallest and largest amount (without sign), period, categories (with
-  their sub-categories) and accounts. Each criterion is shown under the toolbar and removed in
-  one click.
+  their sub-categories) and accounts. Each criterion is shown right below the search bar and
+  removed in one click.
 - **Details**: amount, full label, date and actual date, type (card, transfer,
   direct debit…), card, originating bank, import date; the category and the checked status can be
   changed there. **Similar transactions** runs a search on the merchant's name
   ("PRLV SEPA EDF MDT/123" searches for "EDF").
+- **Comment** a transaction (from its details, **Comment** field, 500 characters): a free
+  text seen by the whole household ("paid back by Paul", "Léa's present"), shown under the
+  date in the lists and found by the search. The synchronization and a statement import do
+  not change it.
+- **Change the date a transaction is counted on**, synchronized or not (from its details,
+  **Counted on** field): it moves to the previous or the next month for the totals, the
+  budgets and the trends (a bill paid on the 1st that belongs to the month before, a salary
+  received early). The real date of the bank does not change and stays shown: the
+  synchronization and a statement import recognize the transaction and keep the chosen date.
+  The parts of a split transaction follow its date.
 - **Delete** a transaction (from its details, or several at once: **Select**, tick the
   transactions, **Delete**; after confirmation): it disappears
   for the whole household and is never imported again, neither by synchronization nor by importing
   a statement.
-- **Enter a transaction by hand** (**+** button), for example a cash expense, on a manual
-  account: expense or income, amount, label, date, and category (otherwise the one of the
-  rules). Any user can enter one; it counts like the others and stays editable (label,
-  date, amount) from its details.
+- **Change the category** of several transactions at once: **Select**, tick the
+  transactions, then choose the category in the list, on one of the ticked transactions
+  ("Uncategorized" included): every ticked transaction gets it, and the selection stays. As
+  for a single one, they are checked off and the rules no longer change this category chosen
+  by hand.
+- **Selection mode**: **Select all** ticks every transaction shown (filter and search applied,
+  500 at most), then becomes **Unselect all**; the cross at the right of the bar closes the
+  selection mode.
+- **Enter a transaction by hand** (**+** button), for example a cash expense, on any
+  account: a manual account, or a synchronized one (a transaction the bank does not send
+  yet; if it sends it later, delete the duplicate): expense or income, amount, label, date,
+  category (otherwise the one of the rules) and comment. Any user can enter one; it counts like the
+  others, is never overwritten by the synchronization and stays editable (label, date,
+  amount, comment) from its details.
 - **Split** a transaction across several categories (from its details): a supermarket
   receipt partly food and partly home, a cash withdrawal spent on groceries and transport.
   The first line is the transaction itself (its category, which may change, and the amount
@@ -219,10 +240,11 @@ Carbure **automatically detects** the transactions that come back every month: s
 subscriptions, bills, reimbursements…
 
 - **"Monthly" badge** on these transactions in the list of the month.
-- A **strip** under the search bar sums them up: their number, how many were received and
-  expected, and the **month total** (net: incomes minus expenses, the ones still expected
-  counted at their usual amount).
-- In this strip, a **toggle** shows only those, and lists the ones **expected this month** that have
+- A **bar** at the top of the list, like the selection one, sums them up. Folded by
+  default, it shows only their number; its chevron unfolds it (choice remembered by the
+  browser): how many were received and expected, and the **recurring transactions total**
+  (net: incomes minus expenses, the ones still expected counted at their usual amount).
+- In this unfolded bar, a **toggle** shows only those, and lists the ones **expected this month** that have
   not arrived yet, with their usual day and amount ("≈" if it varies); for a
   past month, the ones that were **missed** ("Missing this month"). Handy to check that
   the salary came in or that a direct debit was not forgotten.
@@ -248,10 +270,14 @@ categories: each transaction keeps its own, the budgets and the trends do not ch
   end). During its period it is **active** and offered; after its end it is **archived**: no
   longer offered, its summary still readable.
 - **Tag by hand**: from the details of a transaction, or on a **selection** of the list
-  (**Select**, tick the transactions, choose the tag, **Add the tag**). A transaction may have
-  several tags; no automatic rule.
-- **Summary of a tag**: its net cost (refunds deducted), the split by category, the evolution
-  day by day (with the table of the values) and its transactions.
+  (**Select**, tick the transactions). **Type** the tag: the matching active tags are listed,
+  Enter or a click chooses it; a new name offers to **create** the tag (from today, default
+  color). In the details, the tag chosen is added at once; on a selection, **Apply the tag**
+  adds it to the ticked transactions. A transaction may have several tags; no automatic rule.
+- **Summary of a tag**: its net cost (refunds deducted), its expenses and refunds, its cost
+  per day and its largest expense, the running cost chart day by day (on hover or with the
+  keyboard, with the table of the values), the split by category (amount and share) and its
+  transactions.
 - **Search** `#trip-italy` in Transactions: the transactions of the tag, every month. The
   parts of a split transaction get its tags, then are tagged apart.
 - The `tag` and `transaction_tag` tables can be read by the [insights](insights.md).
@@ -287,12 +313,18 @@ the creation, modification and deletion of a category to other users
 A rule associates a **keyword** with a category: any transaction whose label
 **contains** this keyword receives the category ("CARREFOUR" → Supermarket).
 
-- The keyword is stored in uppercase, like the labels; it is unique.
-- When several keywords appear in the same label, **the rule created first**
-  wins.
+- The keyword is stored in uppercase, like the labels.
+- **Amount (optional)**: a rule with an amount only applies to the transactions of this
+  amount, **in absolute value and to the cent** ("10" matches an expense of -10.00 as well
+  as an income of 10.00). Two rules can thus share a keyword: "PAYPAL" → Shopping and
+  "PAYPAL · 10.00" → Spotify. A keyword has only one rule without amount, and one rule
+  per amount.
+- When several rules match a transaction, **a rule with an amount wins** over the rules
+  without amount; otherwise **the rule created first** wins.
 - **Creating or editing a rule applies it immediately to the whole history**, including
   transactions already categorized; the rule's dialog shows how many
-  transactions contain the keyword and how many are already in the category.
+  transactions it matches and how many are already in the category. A rule without
+  amount leaves the transactions matched by a rule with an amount.
 - **A category chosen by hand is never overwritten by a rule**: Carbure remembers the
   origin of the category of each transaction (a rule, or a choice by hand from the portal,
   the mobile apps, a split or a transaction entered by hand). The categories set before
@@ -334,7 +366,8 @@ A budget is an **amount per category and per month**.
   users.
 - **Copy from the previous month**: the button above the summary copies the budgets
   of the previous month, either filling in only the categories without a budget or overwriting
-  the displayed month.
+  the displayed month. It is offered only when the displayed month has no budget yet and
+  the previous month has some (a budget at 0, sum of the subcategories, does not count).
 
 ## Money flow of the month { #flux-du-mois }
 
@@ -361,7 +394,8 @@ uncategorized transactions remain visible. The same flows are available as a tab
 
 ![Trends of expenses, income and savings over several months](assets/screenshot-trends.webp)
 
-Over **3, 6 or 12 months** up to the current month, optionally **compared** with the previous
+Over **3, 6, 12, 24, 36 or 60 months** up to the current month, or over a **custom period**
+(from a chosen month to a chosen month, 20 years at most), optionally **compared** with the previous
 period or with the same period last year:
 
 | Measure | Calculation |
@@ -377,6 +411,17 @@ The savings category is "Épargne" (case and accents ignored), or the one set in
 `savings_category` setting. The key figures (total and average savings, savings rate, average
 spending compared with the planned budget) show the difference from the compared period. Each chart
 is also available as a table.
+
+The **By category** card compares every category of a type (expenses, income or
+off-budget) on one chart, main categories (subcategories included) or subcategories: a
+click on the chip of a category hides or shows it again (**All** / **None**), the scale
+fitting the categories shown. The chart is drawn as **lines**, stacked **bars** or stacked
+**areas**; this choice, the hidden categories, the type and the level are remembered by the
+browser, and the kind of chart also applies to the custom charts.
+
+Administrators add **custom charts** (12 at most, shared by the household): the month by month
+trend of a category (with its subcategories), of a subcategory or of an insight, with its
+average over the period and, for a category, its planned budget.
 
 ## Insights { #insights }
 
@@ -554,7 +599,7 @@ Details: [Web portal](portail.md#accessibilite).
 ## Administration { #administration }
 
 The **Rules** and **Accounts** tabs, and the **Administration** menu
-(**Users**, **Categories**, **Logs**, **Settings**, **Sync**, **Mobile push**, **AI agent**, **Backup**, **API**) are reserved for administrators; other
+(**Users**, **Categories**, **Logs**, **Settings**, **Sync**, **Mobile push**, **AI agent**, **Backup**, **Purge**, **API**) are reserved for administrators; other
 users open **AI agent** from their menu.
 
 - **Users**: creation, editing (including the profile), deletion, last
@@ -576,6 +621,9 @@ users open **AI agent** from their menu.
   ZIP (choosing its files) or of a single file, which **deletes and replaces** the
   data of each imported type, after confirmation, all or nothing. No users, no
   passwords, no tokens and no bank connections in a backup.
+- **Purge**: to start again from scratch, deletion of every row of the chosen data
+  (with the data that depends on it), after confirmation, from the local network
+  only; bank accounts, users and settings kept.
 - **API**: the API documentation (Swagger UI) in the portal; "Try it out" calls
   the API with the administrator's session.
 - **Database update**: when a new version changes the database, a banner

@@ -180,6 +180,8 @@ retours :
   <a href="https://github.com/GILMorgan" title="GIL Morgan"><img src="https://github.com/GILMorgan.png?size=96" width="48" height="48" alt="GIL Morgan"></a>
   <a href="https://github.com/claneys" title="Romain Forlot"><img src="https://github.com/claneys.png?size=96" width="48" height="48" alt="Romain Forlot"></a>
   <a href="https://github.com/yanvigdev" title="yann vignolet"><img src="https://github.com/yanvigdev.png?size=96" width="48" height="48" alt="yann vignolet"></a>
+  <a href="https://github.com/vgrillot" title="vgrillot"><img src="https://github.com/vgrillot.png?size=96" width="48" height="48" alt="vgrillot"></a>
+  <a href="https://github.com/algol-sec" title="algol-sec"><img src="https://github.com/algol-sec.png?size=96" width="48" height="48" alt="algol-sec"></a>
 </p>
 
 Et tous les autres, sur la [liste des contributeurs](https://github.com/ltoinel/Carbure/graphs/contributors)

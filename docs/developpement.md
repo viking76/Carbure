@@ -114,8 +114,10 @@ final class Transaction {
 - Les clés de la requête sont passées **par nom** : le nom des paramètres fait partie
   du contrat d'API.
 - `public: true` désactive le contrôle du JWT ; `stream: true` produit une réponse SSE ;
-  `raw: true` renvoie tel quel le texte retourné par la méthode (serveur MCP). Un test
-  unitaire vérifie la liste des routes publiques.
+  `raw: true` renvoie tel quel le texte retourné par la méthode (serveur MCP) ;
+  `quiet: true` n'écrit les appels réussis qu'en niveau `debug` (`GET /health`, interrogé
+  par les healthchecks ; ses erreurs gardent leur niveau). Un test unitaire vérifie la
+  liste des routes publiques et des routes `quiet`.
 - Route d'administration : la déclarer `admin: true` dans son attribut ; `Webservice` la
   refuse (`403`) aux autres avant d'appeler la méthode. `User::requireAdmin()` ne sert
   qu'aux contrôles conditionnels dans la méthode (ex. `PUT /user` sur un autre

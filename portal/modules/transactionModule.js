@@ -8,11 +8,28 @@
  */
 
 import { withSplitParts } from './splitModule.js';
+import { MAX_TAG_SELECTION } from './tagsModule.js';
 import { EMPTY_FILTERS, searchParams } from './searchModule.js';
 
 // What a bank adds around the merchant: kind of operation first, references after
 const LABEL_PREFIX = /^(FACTURE CARTE DU \d{4,8}|PAIEMENT (PAR )?CB|CB|CARTE|PRLV( SEPA)?|VIREMENT( SEPA)?|VIR( SEPA)?( INST)?|RETRAIT( DAB)?|CHQ|CHEQUE)\s+/;
 const LABEL_NOISE = /^(CARTE|ECH|MDT|REF|\S*\d\S*\d\S*\d\S*|\d{1,2}\/\d{1,2}\S*)$/;
+
+/** Key of the unfolded state of the bar of the recurring transactions, in this browser */
+export const RECURRING_EXPANDED_KEY = 'recurringExpanded';
+
+/**
+ * Whether the bar of the recurring transactions was left unfolded in this browser
+ * (folded by default)
+ * @returns {boolean}
+ */
+export function readRecurringExpanded() {
+    try {
+        return localStorage.getItem(RECURRING_EXPANDED_KEY) === '1';
+    } catch (error) {
+        return false;
+    }
+}
 
 /**
  * Query of the label search that finds the transactions similar to a label: the
@@ -39,6 +56,19 @@ export function similarLabelQuery(label) {
     }
     const query = words.join(' ');
     return query.length >= 2 ? query : full;
+}
+
+/**
+ * Whether a value is a real date in the YYYY-MM-DD format (no 30th of February)
+ * @param {string} value - Value of a date field
+ * @returns {boolean}
+ */
+export function isIsoDate(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) {
+        return false;
+    }
+    const date = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 /**
@@ -111,15 +141,21 @@ export function createTransactionModule(getApiService) {
 
                 // 'all' or 'unchecked'
                 transactionFilter: 'all',
+                // Shows only the transactions without a category
+                uncategorizedOnly: false,
 
                 // Selected transactions being deleted
                 deletingSelection: false,
+                // Category of the selected transactions being saved
+                categorizingSelection: false,
 
                 // Recurring series of the month (salary, rent, subscriptions...) and the
                 // filter that shows only their transactions
                 recurring: [],
                 recurringOnly: false,
                 recurringRequest: 0,
+                // Bar of the recurring series unfolded: their detail, filter and calendar
+                recurringExpanded: readRecurringExpanded(),
                 // Calendar of the recurring series of the month (modal)
                 showRecurringCalendar: false,
 
@@ -129,10 +165,16 @@ export function createTransactionModule(getApiService) {
                 transactionDetail: null,
                 transactionDetailCategory: '',
                 transactionDetailPointed: false,
+                // Date it is counted on (its month), changed in the modal
+                transactionDetailDate: '',
+                // Free-text comment, changed in the modal ('' for none)
+                transactionDetailComment: '',
                 savingTransaction: false,
 
                 // Search by label
                 searchQuery: '',
+                // The search of the transactions similar to one: the text in their label only
+                searchLabelOnly: false,
                 searchResults: [],
                 searching: false,
                 searchTimer: null
@@ -158,6 +200,14 @@ export function createTransactionModule(getApiService) {
             },
 
             /**
+             * Number of transactions without a category (search results or the month)
+             * @returns {number}
+             */
+            uncategorizedCount() {
+                return (this.isSearching ? this.searchResults : this.transactions).filter(t => this.isUncategorized(t)).length;
+            },
+
+            /**
              * Transactions to display: search results or the month, filtered, the parts
              * of a split transaction right after it
              * @returns {Array}
@@ -167,10 +217,23 @@ export function createTransactionModule(getApiService) {
                 if (this.recurringOnly && !this.isSearching) {
                     list = list.filter(t => this.isRecurring(t));
                 }
+                if (this.uncategorizedOnly) {
+                    list = list.filter(t => this.isUncategorized(t));
+                }
                 if (this.transactionFilter === 'unchecked') {
                     list = list.filter(t => !Number(t.pointed));
                 }
                 return withSplitParts(list);
+            },
+
+            /**
+             * Whether every transaction shown is selected (as many as the selection holds)
+             * @returns {boolean}
+             */
+            allDisplayedSelected() {
+                const shown = this.displayedTransactions.map(t => Number(t.id));
+                const selected = new Set(this.selectedTransactionIds.map(Number));
+                return shown.length > 0 && shown.slice(0, MAX_TAG_SELECTION).every(id => selected.has(id));
             },
 
             /**
@@ -424,11 +487,30 @@ export function createTransactionModule(getApiService) {
                 this.transactionDetail = transaction;
                 this.transactionDetailCategory = Number(transaction.category) || 0;
                 this.transactionDetailPointed = !!Number(transaction.pointed);
+                this.transactionDetailDate = transaction.date || '';
+                this.transactionDetailComment = transaction.comment || '';
                 // The categories are needed by the picker
                 if (!this.ruleCategories.length && getApiService()) {
                     getApiService().fetchCategories().then(c => { this.ruleCategories = c; }).catch(() => {});
                 }
                 this.$nextTick(() => document.querySelector('.modal-form .category-picker-button')?.focus());
+            },
+
+            /**
+             * Folds or unfolds the bar of the recurring transactions, remembered in this
+             * browser. Folded, its filter no longer applies: the list never stays limited
+             * by a switch out of sight.
+             */
+            toggleRecurringBar() {
+                this.recurringExpanded = !this.recurringExpanded;
+                if (!this.recurringExpanded) {
+                    this.recurringOnly = false;
+                }
+                try {
+                    localStorage.setItem(RECURRING_EXPANDED_KEY, this.recurringExpanded ? '1' : '0');
+                } catch (error) {
+                    // Storage refused (private browsing): remembered until the page is reloaded
+                }
             },
 
             /** Opens the calendar of the recurring transactions of the month */
@@ -463,16 +545,31 @@ export function createTransactionModule(getApiService) {
             },
 
             /**
-             * Saves the category and the checked state of the transaction of the modal
+             * Saves the category, the checked state, the comment and the date (the month it
+             * is counted on) of the transaction of the modal; a new date reloads the list, the
+             * totals and the periods: the transaction may move to another month
              * @returns {Promise<void>}
              */
             async saveTransactionDetail() {
                 const transaction = this.transactionDetail;
                 const category = Number(this.transactionDetailCategory) || 0;
                 const pointed = this.transactionDetailPointed;
+                const date = this.transactionDetailDate;
+                if (!isIsoDate(date)) {
+                    this.showToast(this.t('apiErrors.transaction_date_invalid'));
+                    return;
+                }
+                const dateChanged = date !== transaction.date;
+                const comment = (this.transactionDetailComment || '').trim();
+                const categoryChanged = category !== (Number(transaction.category) || 0);
                 this.savingTransaction = true;
                 try {
-                    if (category !== (Number(transaction.category) || 0)) {
+                    // The comment first: refused (before its migration, too long), nothing else is saved
+                    if (comment !== (transaction.comment || '')) {
+                        await getApiService().setTransactionComment(transaction.id, comment);
+                        this.setShownComment(transaction, comment || null);
+                    }
+                    if (categoryChanged) {
                         const wasUncategorized = this.isUncategorized(transaction);
                         // Changing the category also checks the transaction
                         await getApiService().setTransactionCategory(transaction.id, category);
@@ -486,13 +583,55 @@ export function createTransactionModule(getApiService) {
                     if (pointed !== !!Number(transaction.pointed)) {
                         await this.toggleTransactionPointed(transaction);
                     }
+                    if (dateChanged) {
+                        await getApiService().setTransactionDate(transaction.id, date);
+                        this.moveTransactionDate(transaction, date);
+                    }
                     this.transactionDetail = null;
                     this.showToast(this.t('transactionSaved'));
+                    if (dateChanged) {
+                        this.loadPeriods();
+                        this.loadTransactions(this.selectedMonth, this.selectedYear);
+                    }
+                    // The amount moved to another category or month: totals and lists of the Budget tab
+                    if ((categoryChanged || dateChanged) && this.activeTab === 'budget') {
+                        this.refreshBudgetTab();
+                    }
                 } catch (error) {
                     this.showToast(this.apiErrorText(error));
                 } finally {
                     this.savingTransaction = false;
                 }
+            },
+
+            /**
+             * Gives its new date to a transaction in the lists shown (month and search), with
+             * its split transaction and the other parts: they follow it
+             * @param {Object} transaction - Transaction (or a part of one)
+             * @param {string} date - New date (YYYY-MM-DD)
+             */
+            moveTransactionDate(transaction, date) {
+                const parent = Number(transaction.split_of ?? transaction.id);
+                for (const t of [...this.transactions, ...this.searchResults]) {
+                    if (Number(t.id) === parent || Number(t.split_of) === parent) {
+                        t.date = date;
+                    }
+                }
+                transaction.date = date;
+            },
+
+            /**
+             * Gives its new comment to a transaction in the lists shown (month and search)
+             * @param {Object} transaction - Transaction (or a part of one)
+             * @param {string|null} comment - New comment, null for none
+             */
+            setShownComment(transaction, comment) {
+                for (const t of [...this.transactions, ...this.searchResults]) {
+                    if (Number(t.id) === Number(transaction.id)) {
+                        t.comment = comment;
+                    }
+                }
+                transaction.comment = comment;
             },
 
             /**
@@ -512,12 +651,26 @@ export function createTransactionModule(getApiService) {
                     this.searchResults = this.searchResults.filter(t => Number(t.id) !== Number(transaction.id));
                     this.showToast(this.t('transactionDeleted'));
                     this.loadPeriods();
-                    this.loadTransactions(this.selectedMonth, this.selectedYear);
+                    if (this.activeTab === 'budget') {
+                        this.refreshBudgetTab();
+                    } else {
+                        this.loadTransactions(this.selectedMonth, this.selectedYear);
+                    }
                 } catch (error) {
                     this.showToast(this.apiErrorText(error));
                 } finally {
                     this.savingTransaction = false;
                 }
+            },
+
+            /**
+             * Selects every transaction shown (the filter and the search applied, up to the
+             * selection limit), or none when they all are
+             */
+            toggleSelectAll() {
+                this.selectedTransactionIds = this.allDisplayedSelected
+                    ? []
+                    : this.displayedTransactions.map(t => Number(t.id)).slice(0, MAX_TAG_SELECTION);
             },
 
             /**
@@ -559,6 +712,39 @@ export function createTransactionModule(getApiService) {
             },
 
             /**
+             * Sets a category chosen in the picker of a selected transaction on every selected
+             * transaction: like a single change, it also checks them (with the parts of the
+             * split ones); the selection stays, for another change
+             * @param {number} chosen - Category id (0: uncategorized)
+             * @returns {Promise<void>}
+             */
+            async categorizeSelectedTransactions(chosen) {
+                const ids = this.selectedTransactionIds.map(Number);
+                if (chosen === '' || chosen === null || !ids.length || this.categorizingSelection) {
+                    return;
+                }
+                const category = Number(chosen);
+                this.categorizingSelection = true;
+                try {
+                    await getApiService().setTransactionsCategory(ids, category);
+                    for (const transaction of [...this.transactions, ...this.searchResults]) {
+                        if (ids.includes(Number(transaction.id))) {
+                            transaction.category = category;
+                            transaction.pointed = 1;
+                        } else if (ids.includes(Number(transaction.split_of))) {
+                            transaction.pointed = 1;
+                        }
+                    }
+                    const name = this.ruleCategories.find(c => Number(c.id) === category)?.name || this.t('uncategorized');
+                    this.showToast(this.t('selectionCategorized', { count: ids.length, name }));
+                } catch (error) {
+                    this.showToast(this.apiErrorText(error));
+                } finally {
+                    this.categorizingSelection = false;
+                }
+            },
+
+            /**
              * Opens the rules tab and the rule modal with the suggested rule pre-filled
              */
             createSuggestedRule() {
@@ -596,6 +782,8 @@ export function createTransactionModule(getApiService) {
              */
             onSearchInput() {
                 clearTimeout(this.searchTimer);
+                // Typed by the user: the label and the comment
+                this.searchLabelOnly = false;
                 if (!this.isSearching) {
                     this.searchResults = [];
                     return;
@@ -614,8 +802,14 @@ export function createTransactionModule(getApiService) {
                     return;
                 }
                 this.transactionDetail = null;
+                // The results are listed in the Transactions tab (detail opened from the Budget tab)
+                if (this.activeTab !== 'transactions') {
+                    this.setActiveTab('transactions');
+                }
                 clearTimeout(this.searchTimer);
                 this.searchQuery = similarLabelQuery(transaction.label);
+                // Same merchant: a comment that names it is not a similar transaction
+                this.searchLabelOnly = true;
                 this.$nextTick?.(() => document.querySelector('.transaction-search input')?.focus());
                 await this.runSearch();
             },
@@ -630,13 +824,13 @@ export function createTransactionModule(getApiService) {
                     return;
                 }
 
-                const params = searchParams(this.searchQuery, this.searchFilters);
+                const params = searchParams(this.searchQuery, this.searchFilters, this.searchLabelOnly);
                 const key = JSON.stringify(params);
                 this.searching = true;
                 try {
                     const results = await apiService.searchTransactions(params);
                     // Ignore late answers for an older search
-                    if (key === JSON.stringify(searchParams(this.searchQuery, this.searchFilters))) {
+                    if (key === JSON.stringify(searchParams(this.searchQuery, this.searchFilters, this.searchLabelOnly))) {
                         this.searchResults = results;
                     }
                 } catch (err) {
@@ -652,6 +846,7 @@ export function createTransactionModule(getApiService) {
             clearSearch() {
                 clearTimeout(this.searchTimer);
                 this.searchQuery = '';
+                this.searchLabelOnly = false;
                 this.searchFilters = { ...EMPTY_FILTERS };
                 this.searchResults = [];
             },

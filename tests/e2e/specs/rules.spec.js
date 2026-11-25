@@ -1,8 +1,16 @@
 // Rules tab (administrators): categorization rules by keyword
 const { test, expect, tr, openTab, pickCategory, currentMonth } = require('../fixtures');
+const { contrastProblems } = require('../a11y');
 
 /** Button of a rule, by its keyword */
 const rule = (page, keyword) => page.getByRole('button', { name: `${tr('editRule')} ${keyword}` });
+
+/** Click the button applying the rules, named by its visible text and described by its mode */
+async function applyRules(page, help) {
+    const button = page.getByRole('button', { name: tr('applyRules'), exact: true });
+    await expect(button).toHaveAccessibleDescription(tr(help));
+    await button.click();
+}
 
 test('lists the rules grouped by category, with a filter', async ({ adminPage: page }) => {
     await openTab(page, tr('tabRules'));
@@ -98,7 +106,7 @@ test('deletes a rule', async ({ adminPage: page }) => {
 
 test('applies all the rules to the whole history', async ({ adminPage: page }) => {
     await openTab(page, tr('tabRules'));
-    await page.getByRole('button', { name: tr('applyRulesHelp') }).click();
+    await applyRules(page, 'applyRulesHelp');
 
     await expect(page.locator('.toast')).toHaveText(tr('rulesApplied', { count: 0 }));
 });
@@ -113,7 +121,7 @@ test('a category chosen by hand is never overwritten by the rules (#341)', async
     const created = await (await api.post('/api/category/keyword', { data: { keyword: 'BOULANGERIE', category: 1 } })).json();
     expect(created.applied).toBe(0);
     await openTab(page, tr('tabRules'));
-    await page.getByRole('button', { name: tr('applyRulesHelp') }).click();
+    await applyRules(page, 'applyRulesHelp');
     await expect(page.locator('.toast')).toHaveText(tr('rulesApplied', { count: 0 }));
 
     const { month, year } = currentMonth();
@@ -147,7 +155,7 @@ test('keeps the existing categories: the rules only categorize the uncategorized
     const category = label => Number(transactions.find(t => t.label === label).category);
     expect([category('CB BOULANGERIE PAUL'), category('CB SUPERMARCHE CASINO'), category('CB RESTAURANT LE PETIT ZINC')]).toEqual([1, 2, 3]);
 
-    await page.getByRole('button', { name: tr('applyRulesHelpUncategorized') }).click();
+    await applyRules(page, 'applyRulesHelpUncategorized');
     await expect(page.locator('.toast')).toHaveText(tr('rulesAppliedUncategorized', { count: 0 }));
 
     // Kept after a reload
@@ -170,4 +178,62 @@ test('a refused change of the switch shows it again as it was', async ({ adminPa
     // Back to its position, not left where it was clicked (#342)
     await expect(toggle).not.toBeChecked();
     await expect(page.getByText(tr('rulesKeepCategorizedOffHelp'))).toBeVisible();
+});
+
+test('two rules with the same keyword, one with an amount: PAYPAL of 10 € goes to Spotify', async ({ adminPage: page, api }) => {
+    // Two PayPal payments of the month, uncategorized, and a Spotify category
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    for (const [label, amount] of [['PAYPAL SPOTIFY', -10], ['PAYPAL EBAY', -42.5]]) {
+        expect((await api.post('/api/transaction', { data: { account: 1, date, label, amount } })).ok()).toBe(true);
+    }
+    expect((await api.post('/api/category', { data: { name: 'Spotify', type: 'DEBIT' } })).ok()).toBe(true);
+    await openTab(page, tr('tabRules'));
+
+    // PAYPAL, any amount: Alimentation
+    await page.getByRole('button', { name: tr('addRuleTitle') }).click();
+    let modal = page.getByRole('dialog', { name: tr('addRuleTitle') });
+    await modal.getByLabel(new RegExp(tr('ruleKeyword'))).fill('PAYPAL');
+    await expect(modal.getByLabel(tr('ruleAmount'))).toHaveAccessibleDescription(tr('ruleAmountHelp'));
+    await pickCategory(modal, 'Alimentation');
+    await modal.getByRole('button', { name: tr('save') }).click();
+    await expect(page.locator('.toast')).toHaveText(tr('ruleSavedApplied', { count: 2 }));
+
+    // PAYPAL of 10 €: Spotify, it wins over the rule without amount
+    await page.getByRole('button', { name: tr('addRuleTitle') }).click();
+    modal = page.getByRole('dialog', { name: tr('addRuleTitle') });
+    await modal.getByLabel(new RegExp(tr('ruleKeyword'))).fill('PAYPAL');
+    await modal.getByLabel(tr('ruleAmount')).fill('10');
+    await pickCategory(modal, 'Spotify');
+    expect(await contrastProblems(page, tr('addRuleTitle'))).toEqual([]);
+    await modal.getByRole('button', { name: tr('save') }).click();
+    await expect(page.locator('.toast')).toHaveText(tr('ruleSavedApplied', { count: 1 }));
+
+    // Listed with its amount, readable at rest and on hover
+    const withAmount = page.getByRole('button', { name: `${tr('editRule')} PAYPAL · 10,00 €`, exact: true });
+    await expect(withAmount).toHaveText(/PAYPAL\s*· 10,00 €/);
+    await expect(page.getByRole('button', { name: `${tr('editRule')} PAYPAL`, exact: true })).toBeVisible();
+    expect(await contrastProblems(page, tr('tabRules'))).toEqual([]);
+
+    const { month, year } = currentMonth();
+    const transactions = await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json();
+    const spotify = (await (await api.get('/api/category')).json()).find(c => c.name === 'Spotify');
+    const category = label => Number(transactions.find(t => t.label === label).category);
+    expect([category('PAYPAL SPOTIFY'), category('PAYPAL EBAY')]).toEqual([Number(spotify.id), 1]);
+
+    // The same keyword and amount again: refused, with its message
+    await page.getByRole('button', { name: tr('addRuleTitle') }).click();
+    modal = page.getByRole('dialog', { name: tr('addRuleTitle') });
+    await modal.getByLabel(new RegExp(tr('ruleKeyword'))).fill('paypal');
+    await modal.getByLabel(tr('ruleAmount')).fill('10,00');
+    await pickCategory(modal, 'Restaurant');
+    await modal.getByRole('button', { name: tr('save') }).click();
+    await expect(page.locator('.toast')).toHaveText(tr('apiErrors.rule_amount_exists', { amount: '10' }));
+    await modal.getByRole('button', { name: tr('cancel') }).click();
+
+    // Opened again: its amount in the field, the transactions it matches
+    await withAmount.click();
+    modal = page.getByRole('dialog', { name: tr('editRule') });
+    await expect(modal.getByLabel(tr('ruleAmount'))).toHaveValue('10.00');
+    await expect(modal.locator('.rule-count')).toContainText(tr('ruleCount', { count: 1, categorized: 1 }));
 });

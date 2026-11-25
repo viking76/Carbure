@@ -204,10 +204,11 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * @param {number} month - Month (1-12)
      * @param {number} year - Year
      * @param {number} category - Category ID
+     * @param {boolean} [own=false] - Only the transactions put on the category itself, not on its sub-categories
      * @returns {Promise<Array>} Array of transaction objects
      */
-    async function fetchCategoryTransactions(month, year, category) {
-        const url = `${baseUrl}/transaction?month=${month}&year=${year}&category=${encodeURIComponent(category)}`;
+    async function fetchCategoryTransactions(month, year, category, own = false) {
+        const url = `${baseUrl}/transaction?month=${month}&year=${year}&category=${encodeURIComponent(category)}${own ? '&own=1' : ''}`;
         const data = await request(url, {}, 'Failed to fetch transactions');
         return Array.isArray(data) ? data : [];
     }
@@ -243,12 +244,14 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * @param {string} file - Content of the file, base64 encoded
      * @param {string} filename - Name of the file
      * @param {Array<number>} selected - Indexes of the rows to import
+     * @param {number|null} [account=null] - Account of the transactions (id of GET /bank); by default
+     *                                       the account number read in the file
      * @returns {Promise<Object>} {imported, categorized, from, to}
      */
-    async function importTransactions(file, filename, selected) {
+    async function importTransactions(file, filename, selected, account = null) {
         return request(`${baseUrl}/transaction/import`, {
             method: 'POST',
-            body: JSON.stringify({ file, filename, selected })
+            body: JSON.stringify(account === null ? { file, filename, selected } : { file, filename, selected, account })
         }, 'Failed to import the file');
     }
 
@@ -398,6 +401,15 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      */
     async function setInsightEnabled(id, enabled) {
         return request(`${baseUrl}/insight/enabled`, { method: 'PUT', body: JSON.stringify({ id, enabled }) }, 'Failed to change the insight');
+    }
+
+    /**
+     * Saves the order of the insights shown in the Insights tab (for the whole household)
+     * @param {Array<number>} ids - The insights, in their new order
+     * @returns {Promise<Array<number>>} The ids of the shown insights, in their order
+     */
+    async function setInsightOrder(ids) {
+        return request(`${baseUrl}/insight/order`, { method: 'PUT', body: JSON.stringify({ ids }) }, 'Failed to order the insights');
     }
 
     /**
@@ -674,6 +686,61 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
     }
 
     /**
+     * Fetches the monthly series of a category (sub-categories included) or of an insight
+     * @param {string} type - 'category' or 'insight'
+     * @param {number} id - Category or insight id
+     * @param {number} months - Number of months
+     * @param {number} offset - Months between the current month and the end of the period
+     * @returns {Promise<Array>} Array of {month, amount, planned}, oldest first
+     * @throws {Error} If request fails
+     */
+    async function fetchTrendSeries(type, id, months = 12, offset = 0) {
+        const params = new URLSearchParams({ type, id: String(id), months: String(months), offset: String(offset) });
+        const data = await request(`${baseUrl}/budget/trends/series?${params}`, {}, 'Failed to fetch the series');
+        return Array.isArray(data) ? data : [];
+    }
+
+    /**
+     * Fetches the monthly amounts of the categories of a type, to compare them on one chart
+     * @param {string} type - 'DEBIT', 'CREDIT' or 'HORS-BUDGET'
+     * @param {string} level - 'top' (sub-categories counted in their parent) or 'sub'
+     * @param {number} months - Number of months
+     * @param {number} offset - Months between the current month and the end of the period
+     * @returns {Promise<{months: Array<string>, categories: Array<Object>}>} The months (oldest
+     *          first) and the categories {id, name, icon, color, parent_category, total, amounts}
+     * @throws {Error} If request fails
+     */
+    async function fetchTrendCategories(type = 'DEBIT', level = 'top', months = 12, offset = 0) {
+        const params = new URLSearchParams({ type, level, months: String(months), offset: String(offset) });
+        const data = await request(`${baseUrl}/budget/trends/categories?${params}`, {}, 'Failed to fetch the categories');
+        return {
+            months: Array.isArray(data?.months) ? data.months : [],
+            categories: Array.isArray(data?.categories) ? data.categories : []
+        };
+    }
+
+    /**
+     * Fetches the custom charts of the Trends tab
+     * @returns {Promise<Array>} Array of {type, id, name, icon, color}
+     * @throws {Error} If request fails
+     */
+    async function fetchTrendCharts() {
+        const data = await request(`${baseUrl}/budget/trends/charts`, {}, 'Failed to fetch the charts');
+        return Array.isArray(data) ? data : [];
+    }
+
+    /**
+     * Replaces the custom charts of the Trends tab (administrators)
+     * @param {Array<{type: string, id: number}>} charts - Charts in display order
+     * @returns {Promise<Array>} The saved charts: {type, id, name, icon, color}
+     * @throws {Error} If request fails
+     */
+    async function saveTrendCharts(charts) {
+        const data = await request(`${baseUrl}/budget/trends/charts`, { method: 'PUT', body: JSON.stringify({ charts }) }, 'Failed to save the charts');
+        return Array.isArray(data) ? data : [];
+    }
+
+    /**
      * Sets the category of a transaction (the transaction is checked too)
      * @param {number} id - Transaction ID
      * @param {number} category - Category ID
@@ -696,8 +763,49 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
     }
 
     /**
+     * Sets one category on several transactions at once, and checks them
+     * @param {Array<number>} ids - Transaction ids
+     * @param {number} category - Category id (0: uncategorized)
+     * @returns {Promise<{updated: number}>}
+     */
+    async function setTransactionsCategory(ids, category) {
+        return request(`${baseUrl}/transaction/categories`, {
+            method: 'PUT',
+            body: JSON.stringify({ ids, category: Number(category) })
+        }, 'Failed to update the categories');
+    }
+
+    /**
+     * Changes the date a transaction is counted on (its month); the real date of the
+     * bank is kept, the parts of a split transaction follow it
+     * @param {number} id - Transaction id
+     * @param {string} date - New date (YYYY-MM-DD)
+     * @returns {Promise<Object>} The transaction saved
+     */
+    async function setTransactionDate(id, date) {
+        return request(`${baseUrl}/transaction/date`, {
+            method: 'PUT',
+            body: JSON.stringify({ id, date })
+        }, 'Failed to change the date of the transaction');
+    }
+
+    /**
+     * Sets the free-text comment of a transaction
+     * @param {number} id - Transaction id
+     * @param {string} comment - The comment (500 characters at most), '' removes it
+     * @returns {Promise<Object>} The transaction saved
+     * @throws {Error} If request fails (409 before the database migration)
+     */
+    async function setTransactionComment(id, comment) {
+        return request(`${baseUrl}/transaction/comment`, {
+            method: 'PUT',
+            body: JSON.stringify({ id, comment })
+        }, 'Failed to change the comment of the transaction');
+    }
+
+    /**
      * Enters a transaction by hand on a manual account
-     * @param {{account: number, date: string, label: string, amount: number, category?: number}} transaction - The transaction
+     * @param {{account: number, date: string, label: string, amount: number, category?: number, comment?: string}} transaction - The transaction
      * @returns {Promise<Object>} The transaction saved
      */
     async function createTransaction(transaction) {
@@ -706,7 +814,7 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
 
     /**
      * Changes a transaction entered by hand
-     * @param {{id: number, date: string, label: string, amount: number}} transaction - The new values
+     * @param {{id: number, date: string, label: string, amount: number, comment?: string}} transaction - The new values ('' removes the comment, absent keeps it)
      * @returns {Promise<Object>} The transaction saved
      */
     async function updateTransaction(transaction) {
@@ -1072,7 +1180,7 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
 
     /**
      * Fetches the automatic categorization rules
-     * @returns {Promise<Array>} Array of {id, keyword, category, category_name}
+     * @returns {Promise<Array>} Array of {id, keyword, category, category_name, notify, amount (null: any amount)}
      */
     async function fetchRules() {
         const data = await request(`${baseUrl}/category/keyword`, {}, 'Failed to fetch rules');
@@ -1084,12 +1192,13 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * @param {string} keyword - Text to find in the labels
      * @param {number} category - Category to set
      * @param {boolean} notify - Notify the household when a new transaction matches
+     * @param {string|number|null} [amount] - Only the transactions of this amount, in absolute value (empty: any amount)
      * @returns {Promise<Object>} Created rule
      */
-    async function createRule(keyword, category, notify = false) {
+    async function createRule(keyword, category, notify = false, amount = '') {
         return request(`${baseUrl}/category/keyword`, {
             method: 'POST',
-            body: JSON.stringify({ keyword, category: Number(category), notify: !!notify })
+            body: JSON.stringify({ keyword, category: Number(category), notify: !!notify, amount: ruleAmount(amount) })
         }, 'Failed to create rule');
     }
 
@@ -1099,13 +1208,23 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * @param {string} keyword - Text to find in the labels
      * @param {number} category - Category to set
      * @param {boolean} notify - Notify the household when a new transaction matches
+     * @param {string|number|null} [amount] - Only the transactions of this amount, in absolute value (empty: any amount)
      * @returns {Promise<Object>} The rule
      */
-    async function updateRule(id, keyword, category, notify) {
+    async function updateRule(id, keyword, category, notify, amount = '') {
         return request(`${baseUrl}/category/keyword`, {
             method: 'PUT',
-            body: JSON.stringify({ id, keyword, category: Number(category), notify: !!notify })
+            body: JSON.stringify({ id, keyword, category: Number(category), notify: !!notify, amount: ruleAmount(amount) })
         }, 'Failed to modify the rule');
+    }
+
+    /**
+     * Amount of a rule as sent to the API: '' for any amount (a PUT without amount keeps it)
+     * @param {string|number|null} amount - The amount typed ("10", "10,50"...)
+     * @returns {string} The amount, or ''
+     */
+    function ruleAmount(amount) {
+        return amount === null || amount === undefined ? '' : String(amount).trim();
     }
 
     /**
@@ -1276,12 +1395,13 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * Fetches budget data for a given month and year
      * @param {number} month - Month (1-12)
      * @param {number} year - Year
-     * @param {number} [categoryId] - Optional category ID for children budgets
+     * @param {number} [categoryId] - Optional category ID for children budgets; the list then also
+     *                                has an item (own: true) for the transactions put on the category itself
      * @returns {Promise<Array>} Array of budget objects
      * @throws {Error} If request fails
      */
     async function fetchBudget(month, year, categoryId = null) {
-        const category = categoryId !== null ? `&category=${encodeURIComponent(categoryId)}` : '';
+        const category = categoryId !== null ? `&category=${encodeURIComponent(categoryId)}&own=1` : '';
         return cancellable('budget', `${baseUrl}/budget?month=${month}&year=${year}${category}`, 'Failed to fetch budget');
     }
     
@@ -1291,13 +1411,14 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
      * @param {number} month - Month (1-12)
      * @param {number} year - Year
      * @param {number} amount - Budget amount
+     * @param {string} [note] - Reminder of what the budget covers ('' removes it, undefined keeps it)
      * @returns {Promise<void>}
      * @throws {Error} If request fails
      */
-    async function updateBudget(categoryId, month, year, amount) {
+    async function updateBudget(categoryId, month, year, amount, note) {
         await request(`${baseUrl}/budget`, {
             method: 'POST',
-            body: JSON.stringify({ category: categoryId, amount, month, year })
+            body: JSON.stringify({ category: categoryId, amount, month, year, note })
         }, 'Failed to update budget');
     }
 
@@ -1314,6 +1435,18 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
             method: 'POST',
             body: JSON.stringify({ month, year, overwrite })
         }, 'Failed to copy the budgets');
+    }
+
+    /**
+     * Tells whether the copy of the budgets of the previous month is offered for a month:
+     * the month has no budget defined and the previous month has some (GET /budget/copy)
+     * @param {number} month - Target month (1-12)
+     * @param {number} year - Target year
+     * @returns {Promise<Object>} {month, source, defined, source_defined, copyable}
+     * @throws {Error} If request fails
+     */
+    async function fetchBudgetCopyStatus(month, year) {
+        return request(`${baseUrl}/budget/copy?month=${encodeURIComponent(month)}&year=${encodeURIComponent(year)}`, {}, 'Failed to fetch the budget copy status');
     }
     
     /**
@@ -1460,6 +1593,30 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         }, 'Failed to import the backup');
     }
 
+    /**
+     * Fetches the datasets that can be purged, their number of rows and the datasets
+     * purged with them (administrators)
+     * @returns {Promise<Object>} {local, datasets: [{name, count, dependents}]}
+     * @throws {Error} If request fails
+     */
+    async function fetchPurgeInfo() {
+        const data = await request(`${baseUrl}/purge`, {}, 'Failed to fetch the purge datasets');
+        return { local: data?.local !== false, datasets: Array.isArray(data?.datasets) ? data.datasets : [] };
+    }
+
+    /**
+     * Deletes every row of datasets (administrators, from the local network)
+     * @param {Array<string>} datasets - Names of the datasets, their dependents included
+     * @returns {Promise<Object>} {purged: {name: count}}
+     * @throws {Error} If request fails (nothing deleted)
+     */
+    async function purgeData(datasets) {
+        return request(`${baseUrl}/purge`, {
+            method: 'POST',
+            body: JSON.stringify({ datasets })
+        }, 'Failed to purge the data');
+    }
+
     return {
         abortAllExcept,
         fetchChanges,
@@ -1470,6 +1627,7 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         approveOAuth,
         updateBudget,
         copyBudgets,
+        fetchBudgetCopyStatus,
         fetchInsights,
         fetchUsers,
         fetchMe,
@@ -1505,6 +1663,7 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         fetchInsightDefinitions,
         fetchDisabledInsights,
         setInsightEnabled,
+        setInsightOrder,
         fetchInsightAlerts,
         setInsightAlert,
         deleteInsightAlert,
@@ -1533,6 +1692,9 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         updateCategory,
         deleteCategory,
         setTransactionCategory,
+        setTransactionsCategory,
+        setTransactionDate,
+        setTransactionComment,
         splitTransaction,
         createTransaction,
         updateTransaction,
@@ -1554,6 +1716,10 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         fetchRuleSettings,
         updateRuleSettings,
         fetchTrends,
+        fetchTrendSeries,
+        fetchTrendCategories,
+        fetchTrendCharts,
+        saveTrendCharts,
         deleteDevice,
         fetchBrowsers,
         deleteBrowser,
@@ -1576,6 +1742,8 @@ export function createApiService(baseUrl, authToken = null, onUnauthorized = nul
         deleteUser,
         fetchBackupInfo,
         exportBackup,
-        importBackup
+        importBackup,
+        fetchPurgeInfo,
+        purgeData
     };
 }

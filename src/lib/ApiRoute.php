@@ -23,6 +23,7 @@ class ApiRoute {
     public bool $stream;
     public bool $raw = false;
     public bool $admin = false;
+    public bool $quiet = false;
     /** @var list<string>|null */
     public ?array $changes = null;
 
@@ -40,6 +41,8 @@ class ApiRoute {
      * @param list<string>|null $changes The kinds of data the route writes (Changes::KINDS), bumped
      *                       by Webservice after a successful call; [] for a write that changes
      *                       none of them. Required on every route but GET (ApiResolverTest)
+     * @param bool   $quiet  True if the successful calls are logged at the DEBUG level only
+     *                       (GET /health, polled by the healthchecks): its errors keep their level
      * @throws LogicException If the route is both public and reserved to the administrators,
      *                        or declares an unknown kind of data
      */
@@ -50,7 +53,8 @@ class ApiRoute {
         bool $stream = false,
         bool $raw = false,
         bool $admin = false,
-        ?array $changes = null
+        ?array $changes = null,
+        bool $quiet = false
     ) {
         if ($public && $admin) {
             throw new LogicException("The route $method $path cannot be both public and reserved to the administrators");
@@ -66,6 +70,7 @@ class ApiRoute {
         $this->raw = $raw;
         $this->admin = $admin;
         $this->changes = $changes;
+        $this->quiet = $quiet;
     }
 
     /**

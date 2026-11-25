@@ -45,6 +45,10 @@ export function manualAccountsOf(accounts) {
 }
 
 /** Configuration in woob of a bank being connected, empty */
+// Last choice of the bank list of the modal adding accounts: the connection of a new bank
+// (never a woob backend name, made of letters, digits and _)
+export const NEW_BANK = '+new';
+
 const EMPTY_SETUP = { module: '', backend: '', label: '', description: '', fields: [], values: {}, loading: false, busy: false, error: null };
 
 /** Update of the woob bank modules, closed */
@@ -81,6 +85,8 @@ export function createAccountsModule(getApiService) {
                 // Step 2: accounts woob lists for one connected bank, to follow
                 showAddAccountsModal: false,
                 addAccountsBackend: '',
+                // Opened from the + of the synchronized accounts: the bank is chosen in the modal
+                addAccountsPicking: false,
                 discoveredAccounts: [],
                 selectedAccounts: [],
                 discovering: false,
@@ -545,6 +551,56 @@ export function createAccountsModule(getApiService) {
             },
 
             /**
+             * Adds accounts (the + of the synchronized accounts): the connection of a bank when
+             * none is connected, otherwise the modal adding accounts, its bank chosen among those
+             * already connected (straight to its accounts when there is one) or a new bank
+             * @returns {Promise<void>|void}
+             */
+            openAddAccountsPicker() {
+                const backends = this.bankBackends || [];
+                if (backends.length === 0) {
+                    this.openConnectModal();
+                    return;
+                }
+                this.addAccountsPicking = true;
+                this.addAccountsBackend = '';
+                this.discoveredAccounts = [];
+                this.selectedAccounts = [];
+                this.discoverError = null;
+                this.discovering = false;
+                this.showAddAccountsModal = true;
+                this.$nextTick?.(() => document.querySelector('#add-accounts-bank')?.focus());
+                if (backends.length === 1) {
+                    return this.openAddAccounts(backends[0].name);
+                }
+            },
+
+            /**
+             * Bank chosen in the modal adding accounts: lists its accounts (the listing of
+             * the bank chosen before is stopped)
+             * @param {string} backend - woob backend (bank connection), '' for none, NEW_BANK
+             *                           for the connection of a new bank
+             * @returns {Promise<void>|void}
+             */
+            chooseAddAccountsBackend(backend) {
+                if (this.discoverAbort) {
+                    this.discoverAbort.abort();
+                }
+                // Last choice of the list: the connection of a new bank
+                if (backend === NEW_BANK) {
+                    this.closeAddAccounts();
+                    this.openConnectModal();
+                    return;
+                }
+                if (backend) {
+                    return this.openAddAccounts(backend);
+                }
+                this.addAccountsBackend = '';
+                this.discoveredAccounts = [];
+                this.selectedAccounts = [];
+            },
+
+            /**
              * Closes the modal adding accounts
              */
             closeAddAccounts() {
@@ -553,6 +609,7 @@ export function createAccountsModule(getApiService) {
                     this.discoverAbort.abort();
                 }
                 this.showAddAccountsModal = false;
+                this.addAccountsPicking = false;
                 this.discoveredAccounts = [];
                 this.selectedAccounts = [];
             },

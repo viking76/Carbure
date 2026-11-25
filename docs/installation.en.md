@@ -47,10 +47,13 @@ seasonal expenses, savings.
 
 The demo image is the usual image with MariaDB and the demo data
 inside: on every start, the database is recreated, the configuration is written with
-random secrets and the data is reloaded. `Ctrl+C` (or `docker stop`) stops it.
+random secrets and the data is reloaded. It covers the 12 months ending today and is
+reloaded every night (when the date of the container changes, UTC by default): a demo
+running for days keeps a current month filled up to the same day, without a restart. The
+`admin` password only changes at start. `Ctrl+C` (or `docker stop`) stops it.
 
 !!! warning "For trying only"
-    **All data is erased on every start** and the `demo` account password is public:
+    **All data is erased on every start and every night** and the `demo` account password is public:
     do not enter any real data in it, and only publish it on the Internet with the precautions
     below. Bank
     sync and notifications are not configured. For your own budget, install
@@ -97,7 +100,7 @@ location /api/ {
 }
 ```
 
-Visitors can change the data: a regular restart resets it and
+Visitors can change the data: the nightly reload resets it, a regular restart also
 changes the `admin` password. The `docker/demo/run.sh` script (to be copied next to the compose
 file on the server) starts the demo, updates it when a new image is published
 (the container is only recreated if the image has changed), with `--reset` recreates it with fresh
@@ -423,7 +426,8 @@ https://gitlab.com/search?group_id=11540390&project_id=25520182&scope=work_items
 Replace `<module>` with the name of the woob module (for example `bnp`, `creditmutuel`,
 `boursorama`). Once the fix is published, update the bank modules from
 the **Accounts** tab (**Update the bank modules** button, administrator; the
-first time, it asks you to approve the woob repository key, see [Security](securite.md)),
+first time, it asks you to approve the woob repository key unless it is the official one,
+approved on its own at the first start of the container, see [Security](securite.md)),
 or restart the Docker container: once the repository is approved, `woob config update` is
 run on every start and updates all bank modules. The
 `woob_auto_update=true` option is not enough: woob only offers a new version of a module

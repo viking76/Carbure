@@ -14,6 +14,16 @@ async function openApiDocs(page) {
     return page.frameLocator('iframe.api-docs-frame');
 }
 
+/**
+ * Shows the operations of one tag: past a number of operations, Swagger UI only draws
+ * the ones in view (virtual list), its filter brings them in
+ * @param {import('@playwright/test').FrameLocator} swagger - Swagger UI
+ * @param {string} tag - Tag of the operations (short class name of the resource)
+ */
+async function filterTag(swagger, tag) {
+    await swagger.locator('.operation-filter-input').fill(tag);
+}
+
 test('an administrator reads the documentation of the API in the portal', async ({ adminPage: page }) => {
     const swagger = await openApiDocs(page);
 
@@ -26,6 +36,7 @@ test('an administrator reads the documentation of the API in the portal', async 
     await expect(link).toHaveAttribute('rel', 'noopener');
 
     // The operations described by swagger.php
+    await filterTag(swagger, 'Category');
     await expect(swagger.locator('.opblock-summary-path[data-path="/api/category"]').first()).toBeVisible({ timeout: 15_000 });
 });
 
@@ -36,6 +47,7 @@ test('"Try it out" calls the API with the session of the portal, never a token i
     // Already authorized with the JWT of the portal
     await expect(swagger.locator('.btn.authorize')).toHaveClass(/\blocked\b/, { timeout: 15_000 });
 
+    await filterTag(swagger, 'Category');
     const operation = swagger.locator('.opblock-get').filter({ has: swagger.locator('.opblock-summary-path[data-path="/api/category"]') });
     await operation.locator('.opblock-summary').click();
     const response = page.waitForResponse(r => new URL(r.url()).pathname === '/api/category');

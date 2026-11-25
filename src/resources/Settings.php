@@ -61,6 +61,8 @@ final class Settings {
         'woob_logging' => ['kind' => 'select', 'options' => ['debug', 'info', 'warning', 'error', 'critical']],
         'woob_debug' => ['kind' => 'bool'],
         'woob_auto_update' => ['kind' => 'bool'],
+        // Transactions relabeled by a fix of the woob module: the saved one takes the new label (#501)
+        'woob_relabel' => ['kind' => 'bool'],
         'woob_2fa_wait' => ['kind' => 'number', 'min' => 0, 'max' => 300],
         'woob_2fa_retries' => ['kind' => 'number', 'min' => 0, 'max' => 5],
         // Push service (Carbure Push, always https://api.carbure.org): empty
@@ -82,7 +84,7 @@ final class Settings {
         'log_level' => 'global', 'log_retention_days' => 'global', 'savings_category' => 'global', 'public_url' => 'global',
         'currency' => 'global', 'next_month_day' => 'global', 'update_check' => 'global',
         'mfa_required' => 'auth',
-        'woob_transactions' => 'woob', 'woob_logging' => 'woob', 'woob_debug' => 'woob', 'woob_auto_update' => 'woob',
+        'woob_transactions' => 'woob', 'woob_logging' => 'woob', 'woob_debug' => 'woob', 'woob_auto_update' => 'woob', 'woob_relabel' => 'woob',
         'woob_2fa_wait' => 'woob', 'woob_2fa_retries' => 'woob',
         'push_api_key' => 'push',
         'smtp_host' => 'smtp', 'smtp_port' => 'smtp', 'smtp_encryption' => 'smtp', 'smtp_auth' => 'smtp',

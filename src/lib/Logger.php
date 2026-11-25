@@ -47,6 +47,9 @@ final class Logger {
     // Shutdown handler registered flag
     private static bool $shutdownRegistered = false;
 
+    // Quiet request (ApiRoute quiet: GET /health): its routine entries are written at the DEBUG level
+    private static bool $quiet = false;
+
     // Log level priorities
     private const LEVELS = [
         'DEBUG'   => 0,
@@ -89,6 +92,32 @@ final class Logger {
         } else {
             self::$context[$key] = $value;
         }
+    }
+
+    /**
+     * Mark the current request as quiet (route polled by the healthchecks): its routine
+     * entries (the call, the access line of a success) are written at the DEBUG level,
+     * its warnings and errors keep their level.
+     *
+     * @param bool $quiet True for a quiet request
+     * @return void
+     */
+    public static function setQuiet(bool $quiet): void
+    {
+        self::$quiet = $quiet;
+    }
+
+    /**
+     * Log a routine message of the request (the call of a route): INFO, DEBUG for a quiet
+     * request (setQuiet).
+     *
+     * @param string     $msg  The message to log
+     * @param mixed|null $data The data to log
+     * @return void
+     */
+    public static function routine(string $msg, mixed $data = null): void
+    {
+        self::log($msg, $data, self::$quiet ? 'DEBUG' : 'INFO');
     }
 
     /**
@@ -171,8 +200,9 @@ final class Logger {
     }
 
     /**
-     * Write the end of the request: method, path, status and duration. Level INFO, or
-     * WARNING for a client error (4xx) and ERROR for a server error (5xx).
+     * Write the end of the request: method, path, status and duration. Level INFO (DEBUG
+     * for a quiet request, see setQuiet), or WARNING for a client error (4xx) and ERROR for
+     * a server error (5xx).
      *
      * @return void
      */
@@ -182,7 +212,7 @@ final class Logger {
         $start = $_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true);
         $duration = (int)round((microtime(true) - $start) * 1000);
         $request = self::request();
-        $level = $status >= 500 ? 'ERROR' : ($status >= 400 ? 'WARNING' : 'INFO');
+        $level = $status >= 500 ? 'ERROR' : ($status >= 400 ? 'WARNING' : (self::$quiet ? 'DEBUG' : 'INFO'));
         self::log(($request['method'] ?? '') . ' ' . ($request['path'] ?? '') . " $status", ['status' => $status, 'duration_ms' => $duration], $level);
     }
 

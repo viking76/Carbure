@@ -1,5 +1,6 @@
 <?php
 
+use Carbure\Lib\ApiError;
 use Carbure\Lib\Db;
 use Carbure\Resources\Budget;
 
@@ -30,6 +31,40 @@ class BudgetTest extends DatabaseTestCase
         $this->assertEquals(0, $budget['Supermarché']['budget']);
     }
 
+    public function testTransactionsOfAParentCategoryItself()
+    {
+        // #492: a transaction put on the parent Alimentation (1), not on its sub-category Supermarché
+        Db::execute("INSERT INTO bank_transaction (uuid, date, rdate, type, label, category, amount, card, pointed, user)
+            VALUES ('p1', ?, ?, 7, 'CB MARCHE', 1, -15.00, '', 0, 1)", "ss", $this->day(1), $this->day(1));
+
+        // Counted for the parent
+        $this->assertEquals(95, $this->byName(Budget::get())['Alimentation']['consummed']);
+
+        // Without own (mobile apps): only the sub-categories, as before
+        $this->assertSame(['Supermarché'], array_column(Budget::get(null, null, 1), 'name'));
+        $this->assertSame(['Supermarché'], array_column(Budget::get(null, null, 1, 'false'), 'name'));
+
+        // With own: an item for the parent itself, without budget, so that the level adds up to the parent
+        $items = Budget::get(null, null, 1, '1');
+        $this->assertSame(['Supermarché', 'Alimentation'], array_column($items, 'name'));
+        $own = $items[1];
+        $this->assertTrue($own['own']);
+        $this->assertEquals(1, $own['id']);
+        $this->assertSame('DEBIT', $own['type']);
+        $this->assertEquals(15, $own['consummed']);
+        $this->assertEquals(0, $own['budget']);
+        $this->assertSame(0, $own['children']);
+        $this->assertArrayNotHasKey('own', $items[0]);
+        $this->assertEquals(95, array_sum(array_column($items, 'consummed')));
+    }
+
+    public function testNoOwnItemWithoutTransactionsOnTheParent()
+    {
+        $this->assertSame(['Supermarché'], array_column(Budget::get(null, null, 1, 'true'), 'name'));
+        // Top level: nothing to add
+        $this->assertNotContains(true, array_column(Budget::get(null, null, 0, 'true'), 'own'));
+    }
+
     public function testCreateOrUpdate()
     {
         Budget::create(1, 300);
@@ -38,6 +73,85 @@ class BudgetTest extends DatabaseTestCase
         $budget = $this->byName(Budget::get());
         $this->assertEquals(300, $budget['Alimentation']['budget']);
         $this->assertEquals(1000, $budget['Salaire']['budget']);
+    }
+
+    public function testNoteOfABudget()
+    {
+        // Saved trimmed with the amount, returned with the budget of the month (#468)
+        Budget::create(3, 120, date('n'), date('Y'), '  Électricité + gaz  ');
+        $budget = $this->byName(Budget::get());
+        $this->assertEquals(120, $budget['Énergie']['budget']);
+        $this->assertSame('Électricité + gaz', $budget['Énergie']['note']);
+        $this->assertNull($budget['Alimentation']['note']);
+
+        // Not sent (mobile apps): kept; "" removes it
+        Budget::create(3, 150, date('n'), date('Y'));
+        $this->assertSame('Électricité + gaz', $this->byName(Budget::get())['Énergie']['note']);
+        Budget::create(3, 150, date('n'), date('Y'), '   ');
+        $budget = $this->byName(Budget::get());
+        $this->assertNull($budget['Énergie']['note']);
+        $this->assertEquals(150, $budget['Énergie']['budget']);
+    }
+
+    public function testNoteOfABudgetTooLong()
+    {
+        Budget::create(3, 100, date('n'), date('Y'), str_repeat('é', 200));
+        $this->assertSame(200, mb_strlen($this->byName(Budget::get())['Énergie']['note']));
+        try {
+            Budget::create(3, 100, date('n'), date('Y'), str_repeat('é', 201));
+            $this->fail('A note of 201 characters was saved');
+        } catch (ApiError $e) {
+            $this->assertSame(400, $e->getCode());
+            $this->assertSame('budget_note_length', $e->getErrorCode());
+        }
+    }
+
+    public function testCopyKeepsTheNotes()
+    {
+        $previous = strtotime(date('Y-m-01') . ' -1 month');
+        $current = strtotime(date('Y-m-01'));
+        Db::query("DELETE FROM budget");
+        Budget::create(1, 200, date('n', $previous), date('Y', $previous), 'Courses + cantine');
+        Budget::create(3, 100, date('n', $previous), date('Y', $previous));
+        Budget::create(1, 250, date('n', $current), date('Y', $current), 'Ce mois-ci');
+
+        // Completing: the budget already set keeps its own note
+        Budget::copy(date('n', $current), date('Y', $current));
+        $budget = $this->byName(Budget::get(date('n', $current), date('Y', $current)));
+        $this->assertSame('Ce mois-ci', $budget['Alimentation']['note']);
+        $this->assertNull($budget['Énergie']['note']);
+
+        // Overwriting: the note of the previous month comes with its amount
+        Budget::copy(date('n', $current), date('Y', $current), true);
+        $budget = $this->byName(Budget::get(date('n', $current), date('Y', $current)));
+        $this->assertEquals(200, $budget['Alimentation']['budget']);
+        $this->assertSame('Courses + cantine', $budget['Alimentation']['note']);
+    }
+
+    public function testBeforeTheMigrationTheBudgetsHaveNoNote()
+    {
+        Db::query("ALTER TABLE budget DROP COLUMN note");
+        $ready = new ReflectionProperty(Budget::class, 'noteReady');
+        $ready->setValue(null, null);
+        try {
+            // Read without note, set without note ("" accepted: nothing to remove), copied
+            $this->assertNull($this->byName(Budget::get())['Énergie']['note']);
+            Budget::create(3, 120, date('n'), date('Y'));
+            Budget::create(3, 130, date('n'), date('Y'), '');
+            $this->assertEquals(130, $this->byName(Budget::get())['Énergie']['budget']);
+            $next = strtotime(date('Y-m-01') . ' +1 month');
+            $this->assertGreaterThan(0, Budget::copy(date('n', $next), date('Y', $next))['copied']);
+            try {
+                Budget::create(3, 140, date('n'), date('Y'), 'Électricité');
+                $this->fail('Note accepted before the migration');
+            } catch (ApiError $e) {
+                $this->assertSame(409, $e->getCode());
+                $this->assertSame('budget_note_migration', $e->getErrorCode());
+            }
+        } finally {
+            Db::query("ALTER TABLE budget ADD COLUMN note varchar(200) DEFAULT NULL AFTER date");
+            $ready->setValue(null, null);
+        }
     }
 
     public function testParentBudgetOverridesTheSumOfItsChildren()
@@ -142,6 +256,71 @@ class BudgetTest extends DatabaseTestCase
         $this->assertEquals(160, $budget['Alimentation']['budget']);
     }
 
+    public function testCopyStatusOfAMonthWithBudgets()
+    {
+        // The current month has its budgets: the copy is not offered
+        $status = Budget::copyStatus();
+        $this->assertSame(date('Y-m'), $status['month']);
+        $this->assertSame(date('Y-m', strtotime(date('Y-m-01') . ' -1 month')), $status['source']);
+        $this->assertTrue($status['defined']);
+        $this->assertFalse($status['copyable']);
+    }
+
+    public function testCopyStatusOfAnEmptyMonthAfterAMonthWithBudgets()
+    {
+        // Next month is empty, the current month has budgets: the copy is offered
+        $next = strtotime(date('Y-m-01') . ' +1 month');
+        $status = Budget::copyStatus(date('n', $next), date('Y', $next));
+        $this->assertSame(date('Y-m', $next), $status['month']);
+        $this->assertSame(date('Y-m'), $status['source']);
+        $this->assertFalse($status['defined']);
+        $this->assertTrue($status['source_defined']);
+        $this->assertTrue($status['copyable']);
+
+        // Once copied, the month has its budgets: no longer offered
+        Budget::copy(date('n', $next), date('Y', $next));
+        $this->assertFalse(Budget::copyStatus(date('n', $next), date('Y', $next))['copyable']);
+    }
+
+    public function testCopyStatusRouteForAUser()
+    {
+        // GET /budget/copy, the month from the query string, for any member of the household
+        $this->loginAs(self::USER);
+        $next = strtotime(date('Y-m-01') . ' +1 month');
+        $status = json_decode($this->callRoute('GET', '/budget/copy', ['month' => date('n', $next), 'year' => date('Y', $next)]), true);
+        $this->assertSame(['month' => date('Y-m', $next), 'source' => date('Y-m'), 'defined' => false, 'source_defined' => true, 'copyable' => true], $status);
+    }
+
+    public function testCopyStatusWithoutBudgetInThePreviousMonth()
+    {
+        // Two months ahead: neither the month nor the previous one has a budget
+        $later = strtotime(date('Y-m-01') . ' +2 months');
+        $status = Budget::copyStatus(date('n', $later), date('Y', $later));
+        $this->assertFalse($status['defined']);
+        $this->assertFalse($status['source_defined']);
+        $this->assertFalse($status['copyable']);
+    }
+
+    public function testCopyStatusIgnoresBudgetsAtZero()
+    {
+        // A budget at 0 ("sum of the sub-categories") is not a defined budget
+        Budget::create(1, 0, 2, 2020);
+        Budget::create(1, 0, 3, 2020);
+        $this->assertFalse(Budget::copyStatus(3, 2020)['source_defined']);
+        $this->assertFalse(Budget::copyStatus(3, 2020)['defined']);
+
+        // February has an amount, March only rows at 0: the copy is offered
+        Budget::create(2, 160, 2, 2020);
+        $status = Budget::copyStatus(3, 2020);
+        $this->assertSame('2020-02', $status['source']);
+        $this->assertTrue($status['copyable']);
+
+        // Across the year boundary too
+        Budget::create(4, 50, 12, 2019);
+        $this->assertSame('2019-12', Budget::copyStatus('1', '2020')['source']);
+        $this->assertTrue(Budget::copyStatus('1', '2020')['copyable']);
+    }
+
     public function testParentBudgetIsTheSumOfItsChildren()
     {
         // 0 removes the override of Alimentation: the budget of Supermarché is used
@@ -192,6 +371,31 @@ class BudgetTest extends DatabaseTestCase
 
         // 300 + 200 put aside, 50 taken back
         $this->assertEquals(450, Budget::getTrends()[23]['savings']);
+    }
+
+    public function testRefundLargerThanSpendingIsNotAnOverspending()
+    {
+        // An expense category with a budget whose month is a net refund (issue #469)
+        Db::query("INSERT INTO bank_transaction_category (id, name, parent_category, type, icon, color) VALUES (22, 'Enfants', 0, 'DEBIT', 'child_care', 'pink')");
+        Db::query("INSERT INTO bank_transaction_category (id, name, parent_category, type, icon, color) VALUES (23, 'Centre de loisirs', 22, 'DEBIT', 'child_care', 'pink')");
+        Budget::create(22, 100, date('n'), date('Y'));
+        $date = date('Y-m-05');
+        foreach ([['r1', 23, -40], ['r2', 23, 90]] as [$uuid, $category, $amount]) {
+            Db::execute("INSERT INTO bank_transaction (uuid, date, rdate, type, label, category, amount, user)
+                VALUES (?, ?, ?, 1, 'CENTRE DE LOISIRS', ?, ?, 1)", "sssid", $uuid, $date, $date, $category, $amount);
+        }
+
+        // 40 spent, 90 refunded: nothing spent, not 50 overspent
+        $budget = $this->byName(Budget::get());
+        $this->assertEquals(0, $budget['Enfants']['consummed']);
+        $this->assertEquals(0, $budget['Enfants']['progress']);
+
+        // A spending larger than the refund stays counted
+        Db::execute("INSERT INTO bank_transaction (uuid, date, rdate, type, label, category, amount, user)
+            VALUES ('r3', ?, ?, 1, 'CENTRE DE LOISIRS', 23, -80, 1)", "ss", $date, $date);
+        $budget = $this->byName(Budget::get());
+        $this->assertEquals(30, $budget['Enfants']['consummed']);
+        $this->assertEquals(30, $budget['Enfants']['progress']);
     }
 
     public function testFlow()
@@ -257,7 +461,7 @@ class BudgetTest extends DatabaseTestCase
         $this->assertEquals(80, $trends[0]['debit']);
         $this->assertEquals(-60, $trends[0]['offBudget']);
 
-        $this->assertCount(60, Budget::getTrends(500));
+        $this->assertCount(240, Budget::getTrends(500));
     }
 
     public function testInsights()

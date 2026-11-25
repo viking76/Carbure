@@ -1021,120 +1021,148 @@ button .material-icons {
     right: 0;
 }
 
-/* Strip of the recurring transactions of the month (#413): their number, their net
-   total, the filter and the calendar */
-.recurring-strip {
+/* Bar of the recurring transactions of the month, like the selection one (#413, #465):
+   folded, their number; unfolded, what was received, their net total, the filter and
+   the calendar */
+.recurring-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 16px 20px;
-    margin-bottom: 16px;
-    padding: 12px 16px 12px 20px;
-    background: var(--surface);
-    border-radius: var(--border-radius-xl);
-    box-shadow: var(--shadow-2);
+    gap: 8px 12px;
+    padding: 10px 24px;
+    background: var(--background);
+    border-bottom: 1px solid var(--divider);
 }
 
-.recurring-strip-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.recurring-bar-icon {
     flex-shrink: 0;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: var(--background);
+    font-size: 20px;
     color: var(--primary-color);
 }
 
-.recurring-strip-info {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
+.recurring-bar-title {
+    flex: 1 1 0;
     min-width: 0;
-}
-
-.recurring-strip-title {
-    font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
 }
 
-.recurring-strip-detail {
-    font-size: 13px;
+/* Unfolded: a second line, aligned with the number */
+.recurring-bar-details {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    flex-basis: 100%;
+    min-width: 0;
+    padding-left: 32px;
+}
+
+/* The filter and the calendar at the end of the line */
+.recurring-bar .toggle-recurring {
+    margin-left: auto;
+}
+
+.recurring-bar-detail {
+    font-size: 14px;
     color: var(--text-secondary);
 }
 
-.recurring-strip-total {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+.recurring-bar-total {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.recurring-bar-total strong {
+    font-size: 16px;
+    font-weight: 600;
     white-space: nowrap;
 }
 
-.recurring-strip-total-label {
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-    color: var(--text-secondary);
-}
-
-.recurring-strip-total strong {
-    font-size: 18px;
-    font-weight: 600;
-}
-
-.recurring-strip-total .positive {
+.recurring-bar-total .positive {
     color: var(--success-color);
 }
 
-.recurring-strip-total .negative {
+.recurring-bar-total .negative {
     color: var(--error-color);
 }
 
-.recurring-strip .btn-recurring-calendar {
+/* The calendar: a pill button, as "Select all" in the selection bar */
+.recurring-bar .btn-recurring-calendar {
     display: inline-flex;
+    align-items: center;
     gap: 6px;
     padding: 6px 14px;
     font-size: 14px;
     text-transform: none;
     letter-spacing: normal;
     border-radius: 20px;
+    color: var(--text-primary);
+    border: 1px solid var(--divider);
+    background: var(--surface);
 }
 
-.recurring-strip .btn-recurring-calendar .material-icons {
+.recurring-bar .btn-recurring-calendar .material-icons {
     font-size: 18px;
 }
 
+.recurring-bar .btn-recurring-calendar:hover,
+.recurring-bar .btn-recurring-calendar:focus-visible {
+    background: var(--hover-surface);
+    color: var(--text-primary);
+    transform: none;
+    box-shadow: none;
+}
+
+/* Folds or unfolds the bar: at the far right, as the closing button of the selection
+   bar */
+.recurring-bar .recurring-bar-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    margin-left: auto;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    box-shadow: none;
+    cursor: pointer;
+}
+
+.recurring-bar .recurring-bar-toggle:hover,
+.recurring-bar .recurring-bar-toggle:focus-visible {
+    background: var(--hover-surface);
+    color: var(--text-primary);
+    transform: none;
+    box-shadow: none;
+}
+
 @media (max-width: 768px) {
-    /* Icon, number and total on the first line, the filter and the calendar under them */
-    .recurring-strip {
-        display: grid;
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        grid-template-areas:
-            "icon info total"
-            "toggle toggle calendar";
-        gap: 8px 12px;
+    .recurring-bar {
         padding: 10px 12px;
-        border-radius: var(--border-radius-md);
     }
 
-    .recurring-strip-icon { grid-area: icon; width: 32px; height: 32px; }
-    .recurring-strip-icon .material-icons { font-size: 20px; }
-    .recurring-strip-info { grid-area: info; }
-    .recurring-strip-total { grid-area: total; }
-    .recurring-strip .toggle-recurring { grid-area: toggle; }
+    .recurring-bar-details {
+        padding-left: 0;
+    }
 
-    .recurring-strip .btn-recurring-calendar {
-        grid-area: calendar;
-        justify-self: end;
+    /* The calendar as an icon: its label stays its accessible name */
+    .recurring-bar .btn-recurring-calendar {
         min-width: 44px;
         min-height: 44px;
         padding: 8px 10px;
         justify-content: center;
     }
 
-    .recurring-strip .btn-label {
+    .recurring-bar .btn-label {
         position: absolute;
         width: 1px;
         height: 1px;
@@ -1144,10 +1172,6 @@ button .material-icons {
         clip: rect(0 0 0 0);
         white-space: nowrap;
         border: 0;
-    }
-
-    .recurring-strip-total strong {
-        font-size: 16px;
     }
 
     .transaction-search.transaction-search-main {
@@ -2004,6 +2028,39 @@ button .material-icons {
     border-left: 4px solid var(--primary-color);
 }
 
+/* Drag and drop of the cards on a magnetic grid (#467): the dragged card is lifted and
+   snaps to the cell under the pointer, the others slide to their new cell */
+.insight-move-move {
+    transition: transform 0.2s ease;
+}
+
+.insights-sorting {
+    cursor: grabbing;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.insights-sorting .insight-card:hover {
+    transform: none;
+}
+
+.insight-card.dragging {
+    position: relative;
+    z-index: 2;
+    box-shadow: var(--shadow-3, 0 12px 28px rgba(0, 0, 0, 0.25));
+    outline: 2px dashed var(--primary-color);
+    outline-offset: 4px;
+}
+
+.insight-drag {
+    cursor: grab;
+    touch-action: none;
+}
+
+.insights-sorting .insight-drag {
+    cursor: grabbing;
+}
+
 .insight-card:hover {
     transform: translateY(-4px);
     box-shadow: var(--shadow-3);
@@ -2526,14 +2583,14 @@ button .material-icons {
     text-align: center;
 }
 
+/* Under the search bar of the Transactions tab, on the page background */
 .search-filters {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 8px;
-    padding: 10px 24px;
-    background: var(--background);
-    border-bottom: 1px solid var(--divider);
+    margin: -6px 0 16px;
+    padding: 0 12px;
 }
 
 .search-filter-chip {
@@ -2571,10 +2628,12 @@ button .material-icons {
     font-size: 16px;
 }
 
+/* On the page background (a gradient in some themes): its own surface, like the chips */
 .search-filters-clear {
-    padding: 4px 8px;
-    border: none;
-    background: transparent;
+    padding: 3px 10px;
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    background: var(--surface);
     color: var(--text-primary);
     font-size: 13px;
     text-decoration: underline;
@@ -2583,8 +2642,10 @@ button .material-icons {
 
 .search-filters-clear:hover,
 .search-filters-clear:focus-visible {
-    background: var(--surface);
+    background: var(--hover-surface);
     color: var(--text-primary);
+    transform: none;
+    box-shadow: none;
 }
 
 .modal-advanced-search input:not([type="radio"]):not([type="checkbox"]) {
@@ -2645,6 +2706,64 @@ button .material-icons {
 
 .advanced-search-options label.child {
     padding-left: 20px;
+}
+
+/* Categories chosen in the advanced search: a chip with the icon of the category, removable */
+.advanced-search-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 8px;
+    padding: 0;
+    list-style: none;
+}
+
+.advanced-search-category {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 3px 4px 3px 3px;
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    background: var(--background);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.advanced-search-category .category-badge {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+}
+
+.advanced-search-category .category-badge .material-icons {
+    font-size: 16px;
+}
+
+.advanced-search-category-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.advanced-search-category button {
+    display: inline-flex;
+    padding: 4px;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    box-shadow: none;
+}
+
+.advanced-search-category button:hover:not(:disabled) {
+    transform: none;
+    box-shadow: none;
+    background: var(--hover-surface);
+    color: var(--text-primary);
+}
+
+.advanced-search-category button .material-icons {
+    font-size: 18px;
 }
 
 @media (max-width: 480px) {
@@ -3236,6 +3355,55 @@ button .material-icons {
     color: var(--success-color);
 }
 
+/* Note of a budget (#468): a reminder of what it covers, on two lines at most (the whole
+   note in the title) */
+.budget-card-note {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.budget-card-note .material-icons {
+    font-size: 16px;
+    vertical-align: -3px;
+    margin-right: 4px;
+}
+
+/* The note of the edit modal: text, not code (the other textareas are SQL) */
+.modal-body textarea.budget-edit-note {
+    font-family: inherit;
+    font-size: 16px;
+}
+
+/* Comment of a transaction, under its date in the lists: one line, whole text in the title */
+.transaction-comment {
+    margin: 2px 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.transaction-comment .material-icons {
+    font-size: 14px;
+    vertical-align: -2px;
+    margin-right: 4px;
+}
+
+/* The comment of the detail modal: text, not code (the other textareas are SQL) */
+.modal-body textarea.transaction-detail-comment {
+    font-family: inherit;
+    font-size: 16px;
+}
+
 /* ===== Trends view ===== */
 .trends-view {
     display: flex;
@@ -3297,6 +3465,24 @@ button .material-icons {
 
 .trends-period button:hover {
     transform: none;
+}
+
+/* Custom range of months */
+.trends-range {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.trends-range label {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.trends-range input {
+    width: auto;
 }
 
 .trends-stats {
@@ -3392,6 +3578,45 @@ button .material-icons {
     stroke: var(--chart-neutral);
     stroke-width: 2;
     stroke-dasharray: 6 4;
+}
+
+/* Custom charts: average of the period (dotted, unlike the dashed planned budget) */
+.trends-chart .average-line {
+    stroke: var(--text-secondary);
+    stroke-width: 1.5;
+    stroke-dasharray: 2 3;
+}
+
+.swatch.average {
+    height: 0;
+    width: 14px;
+    border-top: 2px dotted var(--text-secondary);
+    border-radius: 0;
+}
+
+.trend-chart-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.trend-chart-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.trend-chart-add {
+    display: flex;
+    justify-content: center;
+    margin: 8px 0 16px;
+}
+
+.trend-chart-add button,
+.trends-range button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .trends-chart .hover-band {
@@ -3812,6 +4037,119 @@ button .material-icons {
     stroke-width: 2;
 }
 
+/* "By category" chart: kinds of chart, toggle chips of the categories, series */
+.trend-chart-kinds button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.trend-chart-kinds .material-icons {
+    font-size: 18px;
+}
+
+.trend-category-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-bottom: 8px;
+}
+
+.trend-category-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.trend-category-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--divider);
+    border-radius: 16px;
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    box-shadow: none;
+}
+
+.trend-category-chip:hover {
+    background: var(--hover-surface);
+    box-shadow: none;
+    transform: none;
+}
+
+/* A hidden category: hollow swatch and struck-through name, still readable */
+.trend-category-chip.off {
+    color: var(--text-secondary);
+    text-decoration: line-through;
+}
+
+/* The secondary text is too light on the hover surface */
+.trend-category-chip.off:hover {
+    color: var(--text-primary);
+}
+
+.trend-category-chip .swatch {
+    width: 12px;
+    height: 12px;
+    border: 2px solid;
+    box-sizing: border-box;
+}
+
+.trend-category-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.trend-category-actions button {
+    padding: 4px 12px;
+    font-size: 13px;
+}
+
+.trends-empty {
+    padding: 32px 0;
+    text-align: center;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.trends-chart .category-line,
+.trends-chart .series-line {
+    fill: none;
+    stroke-width: 2;
+    stroke-linejoin: round;
+}
+
+.trends-chart .series-line {
+    stroke: #2a78d6;
+}
+
+.trends-chart .category-area {
+    fill-opacity: 0.85;
+    stroke-width: 1;
+}
+
+.trends-chart .series-area {
+    fill: #2a78d6;
+    fill-opacity: 0.25;
+}
+
+.trends-chart .series-point {
+    fill: #2a78d6;
+    stroke: var(--surface);
+    stroke-width: 2;
+}
+
 /* Category column of the transactions (same width on every row) */
 .transaction-category {
     width: 190px;
@@ -3822,6 +4160,13 @@ button .material-icons {
 
 .transaction-category .category-picker {
     width: 100%;
+}
+
+/* A row is too narrow for the type and the parent of the category chosen: its name takes the
+   room, as on the chip of the other rows */
+.transaction-category .category-picker-button .category-type-chip,
+.transaction-category .category-picker-button .category-picker-name small {
+    display: none;
 }
 
 /* Category picker of a row: a small button, its list floats over the page */
@@ -4141,26 +4486,12 @@ button .material-icons {
     cursor: default;
 }
 
-/* Sections of the Accounts page: connected banks, then followed accounts */
+/* Titles of the groups of a list (e.g. the Admin settings) */
 .accounts-section-title {
     margin: 20px 0 4px;
     font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
-}
-
-/* Title of the manual accounts, with its button (below it on narrow screens) */
-.accounts-section-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px 16px;
-    margin-top: 24px;
-}
-
-.accounts-section-header .accounts-section-title {
-    margin: 0;
 }
 
 /* Transaction entered by hand: direction, then amount and date side by side */
@@ -5665,7 +5996,8 @@ a.footer-brand:hover {
     cursor: pointer;
 }
 
-.btn-danger.btn-danger-icon {
+.btn-danger.btn-danger-icon,
+.btn-square-icon {
     justify-content: center;
     width: 44px;
     padding: 0;
@@ -5910,7 +6242,8 @@ a.footer-brand:hover {
     cursor: pointer;
 }
 
-.flow-node.dim {
+.flow-node.dim,
+.flow-icon.dim {
     opacity: 0.45;
 }
 
@@ -6393,6 +6726,15 @@ textarea:focus-visible,
 
 .budget-card.budget-card-filled.status-over {
     --budget-fill-color: color-mix(in srgb, var(--error-color) 18%, var(--surface));
+}
+
+/* The secondary texts of a filled card (budget, remaining, percent, note): darker than
+   --text-secondary, which is below 4.5:1 on the green, orange and red fills (3.4 to 3.8:1);
+   at least 5.3:1 in the light theme and 5.9:1 in the dark one */
+.budget-card.budget-card-filled .budget-card-amounts .of,
+.budget-card.budget-card-filled .budget-card-foot,
+.budget-card.budget-card-filled .budget-card-note {
+    color: color-mix(in srgb, var(--text-secondary) 60%, var(--text-primary));
 }
 
 /* ===== Logs ===== */
@@ -7061,6 +7403,23 @@ button.recurring-calendar-entry:hover {
     color: var(--text-secondary);
 }
 
+/* Risk of a setting (woob_relabel): dark orange text on its light tint (WCAG AA 5.6:1) */
+.config-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+    color: var(--warning-color);
+    background: var(--warning-light);
+    border-radius: var(--border-radius-sm);
+}
+
+.config-warning .material-icons {
+    font-size: 16px;
+}
+
 .config-value {
     display: flex;
     align-items: center;
@@ -7710,7 +8069,7 @@ button.recurring-calendar-entry:hover {
 
     .header,
     .tabs,
-    .recurring-strip,
+    .recurring-bar,
     .footer,
     .modal,
     .card,
@@ -7804,8 +8163,75 @@ button.recurring-calendar-entry:hover {
 }
 
 /* ===== Confirmation modal (askConfirm) ===== */
+/* Icon of the title in a round badge: red tint for a destructive action */
+.modal-confirm .confirm-icon {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--primary-color) 12%, var(--surface));
+}
+
+.modal-confirm .confirm-icon .material-icons {
+    font-size: 22px;
+    color: var(--primary-color);
+}
+
+.modal-confirm.is-danger .confirm-icon {
+    background: var(--error-light);
+}
+
+/* --error-color on --error-light: at least 4.5:1 in both themes (accessibility spec) */
+.modal-confirm.is-danger .confirm-icon .material-icons {
+    color: var(--error-color);
+}
+
+.modal-confirm .modal-body {
+    gap: 14px;
+    padding: 20px;
+}
+
+.modal-confirm .confirm-message {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+/* Consequence of the action: warning callout (as .woob-warning), its text in the
+   main color for the contrast in both themes */
+.modal-confirm .confirm-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: var(--border-radius-md);
+    border-left: 4px solid var(--warning-color);
+    background: var(--warning-light);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.modal-confirm .confirm-warning .material-icons {
+    flex: none;
+    font-size: 20px;
+    color: var(--warning-color);
+}
+
 .modal-confirm .confirm-error {
     margin: 0;
+}
+
+/* Cancel and the action side by side, the action last */
+.modal-confirm .modal-footer {
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
 }
 
 /* Destructive confirmation: red, another shade on hover (label readable on both,
@@ -8049,6 +8475,20 @@ button.is-busy:not(.btn-confirm-danger):hover {
 
 .backup-warning .material-icons {
     font-size: 20px;
+}
+
+/* Purge: a dataset ticked with the one that refers to it, the purge refused from Internet */
+.purge-forced {
+    display: block;
+    font-size: 12px;
+    font-weight: normal;
+}
+
+.purge-not-local {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
 }
 
 /* First bank connection: the synchronization depends on woob */
@@ -8403,16 +8843,150 @@ button.is-busy:not(.btn-confirm-danger):hover {
     font-size: 14px;
 }
 
-.tag-add-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+/* Title of the Tags section of a transaction detail, underlined */
+.transaction-detail-tags .detail-section-title {
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--divider);
+}
+
+.tag-none-active {
+    margin: 8px 0 0;
+}
+
+.tag-tab-link {
+    color: var(--primary-color);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.tag-tab-link:hover,
+.tag-tab-link:focus-visible {
+    color: var(--primary-dark, var(--primary-color));
+    text-decoration-thickness: 2px;
+}
+
+/* Tag typed with autocompletion (TagInput): the field, then the tags matching it */
+.tag-input {
+    position: relative;
     margin-top: 8px;
 }
 
-.tag-add-row select {
-    flex: 1 1 160px;
+.tag-input-icon {
+    position: absolute;
+    top: 0;
+    left: 12px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    font-size: 18px;
+    color: var(--text-secondary);
+    pointer-events: none;
+}
+
+.tag-input:focus-within .tag-input-icon {
+    color: var(--primary-color);
+}
+
+.tag-input input[type="text"] {
+    width: 100%;
+    height: 40px;
+    margin: 0;
+    padding: 0 12px 0 38px;
+    border: 1px solid var(--divider);
+    border-radius: var(--border-radius-md);
+    background: var(--surface);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 14px;
+    box-shadow: none;
+    appearance: none;
+}
+
+.tag-input input[type="text"]::placeholder {
+    color: var(--text-secondary);
+    opacity: 1;
+}
+
+.tag-input input[type="text"]:hover:not(:disabled) {
+    border-color: var(--primary-color);
+}
+
+.tag-input input[type="text"]:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 15%, transparent);
+    outline: none;
+}
+
+.tag-input input[type="text"]:disabled {
+    background: var(--background);
+    cursor: not-allowed;
+}
+
+.tag-input-list {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-4);
+}
+
+/* In a modal, the list opens inline so that the modal scrolls instead of clipping it */
+.modal-body .tag-input-list {
+    position: static;
+    margin-top: 4px;
+    box-shadow: var(--shadow-1);
+}
+
+.tag-input-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-radius: var(--border-radius-md);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.tag-input-option.active {
+    background: color-mix(in srgb, var(--primary-color) 8%, var(--surface));
+}
+
+.tag-input-option.create {
+    color: var(--primary-dark);
+    font-weight: 500;
+}
+
+.tag-input-option .material-icons {
+    font-size: 18px;
+}
+
+.tag-input-name {
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Text matching the one typed */
+.tag-input-option mark {
+    background: none;
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.tag-input-empty {
+    padding: 10px 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
 }
 
 .transaction-select {
@@ -8440,9 +9014,10 @@ button.is-busy:not(.btn-confirm-danger):hover {
     color: var(--text-primary);
 }
 
-.tag-selection-bar select {
-    flex: 0 1 220px;
+.tag-selection-bar .tag-input {
+    flex: 0 1 260px;
     min-width: 0;
+    margin-top: 0;
 }
 
 /* Deletion of the selection: at the end of the bar */
@@ -8455,8 +9030,52 @@ button.is-busy:not(.btn-confirm-danger):hover {
     border-radius: 20px;
 }
 
-.tag-selection-bar .selection-delete .material-icons {
+.tag-selection-bar .selection-delete .material-icons,
+.tag-selection-bar .selection-all .material-icons {
     font-size: 18px;
+}
+
+.tag-selection-bar .selection-all {
+    padding: 6px 14px;
+    font-size: 14px;
+    text-transform: none;
+    letter-spacing: normal;
+    border-radius: 20px;
+    color: var(--text-primary);
+    border: 1px solid var(--divider);
+    background: var(--surface);
+}
+
+.tag-selection-bar .selection-all:hover:not(:disabled),
+.tag-selection-bar .selection-all:focus-visible {
+    background: var(--hover-surface);
+    color: var(--text-primary);
+    transform: none;
+    box-shadow: none;
+}
+
+/* Leaves the selection mode: the last button of the bar, at the far right */
+.tag-selection-bar .selection-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-secondary);
+    box-shadow: none;
+    cursor: pointer;
+}
+
+.tag-selection-bar .selection-close:hover,
+.tag-selection-bar .selection-close:focus-visible {
+    background: var(--hover-surface);
+    color: var(--text-primary);
+    transform: none;
+    box-shadow: none;
 }
 
 .tag-list,
@@ -8467,169 +9086,627 @@ button.is-busy:not(.btn-confirm-danger):hover {
     padding: 0;
 }
 
-.tag-item {
+/* ----- List of the tags: a card per tag ----- */
+.tag-list-title {
     display: flex;
     align-items: center;
     gap: 8px;
-    border-bottom: 1px solid var(--divider);
+    margin: 4px 0 12px;
+}
+
+.tag-list ~ .tag-list-title {
+    margin-top: 28px;
+}
+
+.tag-list-count {
+    min-width: 22px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--background);
+    border: 1px solid var(--divider);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+}
+
+.tag-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+    gap: 12px;
+}
+
+/* The color of the tag as an accent on the left edge; the actions in the top right corner */
+.tag-item {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    border: 1px solid var(--divider);
+    border-left: 4px solid var(--tag-color, var(--primary-color));
+    border-radius: var(--border-radius-lg);
+    background: var(--surface);
+    overflow: hidden;
+    transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.tag-item:hover,
+.tag-item:focus-within {
+    box-shadow: var(--shadow-2);
 }
 
 .tag-open {
     flex: 1;
     min-width: 0;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-areas: "dot name total" "dot period count";
-    align-items: center;
-    gap: 2px 10px;
-    padding: 12px 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 14px 16px;
     border: none;
+    border-radius: 0;
     background: transparent;
     color: var(--text-primary);
     text-align: left;
     text-transform: none;
     letter-spacing: normal;
     font: inherit;
+    box-shadow: none;
     cursor: pointer;
 }
 
 .tag-open:hover,
 .tag-open:focus-visible {
     background: var(--background);
+    transform: none;
 }
 
-.tag-open .tag-dot { grid-area: dot; }
-.tag-name { grid-area: name; font-weight: 600; overflow-wrap: anywhere; }
-.tag-period { grid-area: period; color: var(--text-secondary); font-size: 13px; }
-.tag-count { color: var(--text-secondary); font-size: 13px; }
-.tag-open .tag-count { grid-area: count; justify-self: end; }
-.tag-total { grid-area: total; justify-self: end; white-space: nowrap; }
+.tag-open:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+}
 
-.tag-total.positive,
-.tag-summary .positive {
+/* Room for the two actions */
+.tag-open-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding-right: 76px;
+    min-width: 0;
+}
+
+.tag-item .tag-dot {
+    background: var(--tag-color, var(--primary-color));
+}
+
+.tag-name {
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.tag-period {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.tag-period .material-icons {
+    font-size: 16px;
+}
+
+/* Time gone of the period: the color of the tag on a tint of it */
+.tag-progress {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--tag-color, var(--primary-color)) 18%, transparent);
+    overflow: hidden;
+}
+
+.tag-progress span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--tag-color, var(--primary-color));
+}
+
+.tag-open-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--divider);
+}
+
+.tag-count { color: var(--text-secondary); font-size: 13px; }
+
+.tag-total {
+    font-size: 18px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.tag-item-actions {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}
+
+.tag-item-actions .btn-icon {
+    box-shadow: none;
+}
+
+/* An archived tag: same contrasts, a quieter accent */
+.tag-item-archived {
+    border-left-style: dashed;
+}
+
+/* Empty list: an icon, the message and how to start */
+.tags-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 32px 16px 24px;
+    text-align: center;
+}
+
+.tags-empty-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    margin-bottom: 6px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    color: var(--primary-color);
+}
+
+.tags-empty-icon .material-icons {
+    font-size: 28px;
+}
+
+.tags-empty-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.tags-empty .rules-help {
+    max-width: 420px;
+    margin: 0;
+}
+
+.tag-total.positive {
     color: var(--success-color);
 }
 
-.tag-total.negative,
-.tag-summary .negative {
+.tag-total.negative {
     color: var(--error-color);
 }
 
+/* ----- Summary of a tag ----- */
+.tag-summary-header {
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.tag-summary-identity {
+    min-width: 0;
+}
+
 .tag-back {
-    margin-bottom: 8px;
+    margin-bottom: 14px;
 }
 
 .tag-summary-title {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     margin: 0;
-    font-size: 22px;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: var(--text-primary);
     overflow-wrap: anywhere;
 }
 
-.tag-summary-total {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 12px;
-    margin: 8px 0 16px;
+/* Focused when the summary opens, for the screen readers: not a control, no ring */
+.tag-summary-title:focus {
+    outline: none;
 }
 
-.tag-summary-total strong {
-    font-size: 28px;
+.tag-summary-title .tag-dot {
+    width: 14px;
+    height: 14px;
+    box-shadow: 0 0 0 3px var(--surface);
+}
+
+.tag-summary-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    margin-top: 10px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.tag-summary-period,
+.tag-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tag-summary-period .material-icons,
+.tag-status .material-icons {
+    font-size: 18px;
+}
+
+/* The status as a pill: the text keeps the ink of the page, the icon carries the state */
+.tag-status {
+    padding: 3px 10px 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--divider);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.tag-status-active .material-icons {
+    color: var(--success-color);
+}
+
+.tag-status-archived .material-icons {
+    color: var(--text-secondary);
+}
+
+.tag-summary-actions {
+    flex-wrap: wrap;
+}
+
+.tag-summary-actions .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tag-summary-actions .material-icons {
+    font-size: 18px;
+}
+
+/* Figures: tiles laid on the background of the page */
+.tag-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.tag-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 14px 16px;
+    border-radius: var(--border-radius-lg);
+    background: var(--background);
+    border: 1px solid var(--divider);
+}
+
+.tag-kpi .summary-value {
+    font-size: 22px;
+    white-space: nowrap;
+}
+
+.tag-summary-total .summary-value {
+    font-size: 26px;
+}
+
+.tag-kpi-label {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.tag-summary .positive {
+    color: var(--success-color);
+}
+
+.tag-summary .negative {
+    color: var(--error-color);
+}
+
+/* The chart and the categories side by side on a wide screen */
+.tag-summary-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: start;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.tag-panel {
+    min-width: 0;
+    padding: 16px 18px;
+    border: 1px solid var(--divider);
+    border-radius: var(--border-radius-lg);
+}
+
+.tag-panel-transactions {
+    margin-top: 20px;
 }
 
 .tag-summary-heading {
-    margin: 20px 0 8px;
+    margin: 0 0 12px;
     font-size: 15px;
+    font-weight: 600;
     color: var(--text-primary);
 }
 
-/* Bars by category: the name, the bar (the color of the category), the amount */
-.tag-category {
-    display: grid;
-    grid-template-columns: minmax(0, 10rem) minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 10px;
-    padding: 4px 0;
-}
-
-.tag-category-name {
-    overflow-wrap: anywhere;
-    color: var(--text-primary);
-}
-
-.tag-category-bar {
-    height: 12px;
-    border-radius: 0 4px 4px 0;
-}
-
-.tag-category-bar span {
-    display: block;
-    height: 100%;
-    border-radius: 0 4px 4px 0;
-}
-
-.tag-category-amount {
-    white-space: nowrap;
-    color: var(--text-primary);
-}
-
-/* Running total day by day: one thin line, the zero line recessive */
+/* Running cost: one 2px line in steps, a wash under it fading to the zero line */
 .tag-chart {
     margin: 0;
 }
 
-.tag-chart svg {
-    display: block;
-    width: 100%;
-    height: 180px;
-    overflow: visible;
+.tag-chart-frame {
+    position: relative;
+    border-radius: var(--border-radius-md);
 }
 
-.tag-chart-zero {
+.tag-chart-frame:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 4px;
+}
+
+.tag-chart-frame svg {
+    display: block;
+    width: 100%;
+    overflow: visible;
+    touch-action: pan-y;
+}
+
+.tag-chart-grid line {
     stroke: var(--divider);
     stroke-width: 1;
 }
 
-.tag-chart-line {
-    fill: none;
-    stroke: var(--primary-color);
-    stroke-width: 2;
-    stroke-linejoin: round;
+.tag-chart-grid text,
+.tag-chart-axis {
+    fill: var(--text-secondary);
+    font-size: 12px;
+    font-family: 'Roboto', sans-serif;
+    font-variant-numeric: tabular-nums;
 }
 
-.tag-chart-hit {
-    fill: transparent;
+.tag-chart-zero {
+    stroke: var(--text-secondary);
+    stroke-width: 1;
+}
+
+.tag-chart-fill-far {
+    stop-color: var(--chart-current);
+    stop-opacity: 0.28;
+}
+
+.tag-chart-fill-near {
+    stop-color: var(--chart-current);
+    stop-opacity: 0.04;
+}
+
+.tag-chart-line {
+    fill: none;
+    stroke: var(--chart-current);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.tag-chart-cursor {
+    stroke: var(--text-secondary);
+    stroke-width: 1;
 }
 
 .tag-chart-dot {
-    fill: var(--primary-color);
+    fill: var(--chart-current);
     stroke: var(--surface);
     stroke-width: 2;
 }
 
-.tag-chart-point:hover .tag-chart-dot {
-    stroke: var(--text-primary);
+.tag-chart-dot-active {
+    stroke-width: 3;
+}
+
+.tag-chart-tooltip {
+    position: absolute;
+    top: 4px;
+    min-width: 170px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    border-radius: var(--border-radius-md);
+    box-shadow: var(--shadow-2);
+    font-size: 13px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.tag-chart-tooltip strong {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.tag-chart-tooltip div {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    color: var(--text-secondary);
+}
+
+.tag-chart-tooltip div span {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
 }
 
 .tag-chart-table {
-    margin-top: 8px;
+    margin-top: 12px;
 }
 
 .tag-chart-table summary {
     cursor: pointer;
     color: var(--text-secondary);
+    font-size: 14px;
 }
 
-.tag-transaction {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 0;
+.tag-chart-table summary:hover,
+.tag-chart-table summary:focus-visible {
+    color: var(--text-primary);
+}
+
+/* By category: the icon badge, the name and the amount, a bar in the color of the
+   category on a tint of it, the count and the share */
+.tag-category {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
     border-bottom: 1px solid var(--divider);
+}
+
+.tag-category:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.tag-category:first-child {
+    padding-top: 0;
+}
+
+.tag-category-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.tag-category-icon .material-icons {
+    font-size: 20px;
+    width: 20px;
+    overflow: hidden;
+}
+
+.tag-category-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.tag-category-line,
+.tag-category-sub {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.tag-category-name {
+    min-width: 0;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.tag-category-amount {
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.tag-category-bar {
+    height: 8px;
+    margin: 6px 0 4px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--bar-color) 14%, transparent);
+    overflow: hidden;
+}
+
+.tag-category-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+    background: var(--bar-color);
+}
+
+.tag-category-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.tag-category-share {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Its transactions: rows of the Transactions tab, more compact */
+.tag-transaction {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--divider);
+}
+
+.tag-transaction:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.tag-transaction:first-child {
+    padding-top: 0;
+}
+
+.tag-transaction .tag-transaction-icon {
+    width: 36px;
+    height: 36px;
+}
+
+.tag-transaction .tag-transaction-icon .material-icons {
+    font-size: 20px;
+}
+
+.tag-transaction-main {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    gap: 2px;
+}
+
+.tag-transaction-label {
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .tag-transaction-date {
@@ -8638,34 +9715,88 @@ button.is-busy:not(.btn-confirm-danger):hover {
     white-space: nowrap;
 }
 
-.tag-transaction-label {
-    overflow-wrap: anywhere;
+.tag-transaction .category-chip {
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 30%;
 }
 
 .tag-transaction-amount {
+    min-width: 96px;
+    text-align: right;
     white-space: nowrap;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1024px) {
+    .tag-summary-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .tag-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .tag-kpi {
+        padding: 12px;
+    }
+
+    .tag-kpi .summary-value,
+    .tag-summary-total .summary-value {
+        font-size: 18px;
+    }
+
+    .tag-summary-title {
+        font-size: 20px;
+    }
+
+    .tag-summary-header {
+        align-items: stretch;
+    }
+
+    .tag-summary-actions {
+        width: 100%;
+    }
+
+    .tag-summary-actions .btn-secondary {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+
+    .tag-panel {
+        padding: 14px 12px;
+    }
+
+    /* The category under the label: the amount keeps the right */
+    .tag-transaction {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 2px 12px;
+    }
+
+    .tag-transaction-icon {
+        grid-row: 1 / span 2;
+    }
+
+    .tag-transaction .category-chip {
+        grid-column: 2;
+        grid-row: 2;
+        justify-self: start;
+        max-width: 100%;
+    }
+
+    .tag-transaction-amount {
+        grid-column: 3;
+        grid-row: 1;
+        min-width: 0;
+    }
 }
 
 @media (max-width: 600px) {
-    .tag-category {
-        grid-template-columns: minmax(0, 1fr) auto;
-    }
-
-    .tag-category-bar {
-        grid-column: 1 / -1;
-        grid-row: 2;
-    }
-
-    .tag-transaction {
-        grid-template-columns: minmax(0, 1fr) auto;
-    }
-
-    .tag-transaction-label {
-        grid-column: 1 / -1;
-        grid-row: 1;
-    }
-
     .tag-selection-bar {
         padding: 10px 12px;
     }
@@ -8791,4 +9922,10 @@ button.is-busy:not(.btn-confirm-danger):hover {
 /* The amount of a transaction being split stays on one line */
 .split-summary > span:last-child {
     white-space: nowrap;
+}
+
+/* Amount of a rule on its chip ("PAYPAL · 10,00 €"): same color as the keyword (contrast) */
+.rule-amount {
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
 }

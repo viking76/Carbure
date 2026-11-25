@@ -38,9 +38,10 @@ keeps track of what was done).
       transactions of their own (`split_of` set); show them under their transaction, with its
       bank amount, and offer the split (`PUT /transaction/split`).
 
-- [ ] **Mobile apps — transactions entered by hand (#355)**: the apps show them already
-      (`bank_name` = `manual`); offer to enter one (`POST /transaction`, accounts of `GET /bank`
-      with `manual`) and to change it (`PUT /transaction`).
+- [ ] **Mobile apps — transactions entered by hand (#355)**: the apps show them already;
+      offer to enter one (`POST /transaction`, on any account of `GET /bank`, the `manual`
+      ones first) and to change it (`PUT /transaction`). Entered by hand = `uuid` starting
+      with `manual`, or `bank_name` = `manual` (older entries, #431).
 
 - [ ] **Deployment of the tags (#354)**: the migration `2026-10-31_tags` (tables `tag`,
       `transaction_tag`) is applied at container start; before it, the transactions are
@@ -69,9 +70,54 @@ keeps track of what was done).
       shown insights; offer to hide a card and to show a hidden one again
       (`GET /insight/disabled`, `PUT /insight/enabled`).
 
+- [ ] **Deployment of the budget notes (#468)**: the migration `2026-11-06_budget_note`
+      (column `budget.note`) is applied at container start. Before it, `GET /budget` returns
+      `note: null` and `POST /budget` with a note answers 409 (`budget_note_migration`).
+
+- [ ] **Deployment of the transaction comments**: the migration `2026-11-19_transaction_comment`
+      (column `bank_transaction.comment`, nullable: the existing transactions get `NULL`, no
+      rewrite of the rows) is applied at container start by `tools/migrate.php`. Before it,
+      the transactions have no `comment` field and `PUT /transaction/comment` with a comment
+      answers 409 (`transaction_comment_migration`); the rest works as before.
+
+- [ ] **Mobile apps — transaction comments**: `GET /transaction` and `GET /transaction/search`
+      return `comment` (`null` without one, absent before the migration); show it and offer it
+      in the transaction details (`PUT /transaction/comment` with `id`, `comment`; `""` removes
+      it, 500 characters at most) and in the form of a transaction entered by hand
+      (`POST /transaction` and `PUT /transaction` take an optional `comment`; without it,
+      `PUT /transaction` keeps the current one).
+
+- [ ] **Mobile apps — budget notes (#468)**: `GET /budget` returns `note`; show it and offer it
+      in the budget editor (`POST /budget` with `note`, `""` to remove it; without `note`
+      the current one is kept).
+
+- [ ] **Mobile apps — transactions put on a parent category (#492)**: in a sub-level of the
+      budgets they are in no card. Ask `GET /budget?category=<parent>&own=1` and show the
+      item with `own: true` (no budget, not to open again); its transactions:
+      `GET /transaction?category=<parent>&own=1`.
+
+- [ ] **Deployment of the order of the insights (#467)**: the migration
+      `2026-11-07_insight_position` (column `budget_insight.position`) is applied at container
+      start; the insights keep their order (by id) until the household orders them. Before it,
+      `PUT /insight/order` answers 409 (`insight_migration_pending`).
+
+- [ ] **Mobile apps — order of the insights (#467)**: `GET /budget/insights` already returns
+      the cards in the order chosen in the portal; offer to reorder them
+      (`PUT /insight/order` with the ids in their new order).
+
 - [ ] **Deployment of the insight alerts (#387)**: the migration `2026-11-03_insight_alert`
       (table `insight_alert`) is applied at container start. Before it, `GET /insight/alert`
       is empty, `PUT /insight/alert` answers 409 and nothing alerts.
+
+- [ ] **Deployment of the amount of the rules (#462)**: the migration `2026-11-05_rule_amount`
+      (columns `bank_transaction_category_keyword.amount` and generated `amount_key`, unique
+      key on `keyword` + `amount_key`) is applied at container start; the existing rules
+      keep any amount. Before it, the rules work as before, `amount` is `null` and a rule
+      with an amount is refused (409 `rule_amount_migration`).
+
+- [ ] **Mobile apps — amount of the rules (#462)**: `GET /category/keyword` returns `amount`
+      (`null`: any amount); show it next to the keyword and offer it in the rule form
+      (optional `amount` of `POST`/`PUT /category/keyword`; a `PUT` without it keeps it).
 
 - [ ] **Mobile apps — insight alerts (#387)**: a bell on each insight card to set the alert
       (`GET`/`PUT`/`DELETE /insight/alert`), and the kind `insight` in the notification
@@ -89,6 +135,12 @@ keeps track of what was done).
       the release, check `docker run --rm -p 8080:80 ltoinel/carbure:demo` on amd64 and
       arm64, and mention the demo tag in the overview of the Docker Hub repository
       (accounts: `demo` / `carbure`, `admin` with a random password printed in the logs).
+
+- [ ] **Demo data reloaded each day (#481)**: after the 1.13.0 release, the day after the
+      update of demo.carbure.org, check that `docker logs carbure-demo` shows
+      `new day (…), demonstration data reloaded up to today` and that the current month
+      has transactions up to today; the nightly `run.sh --reset` cron is then only
+      needed to change the `admin` password.
 
 - [ ] **Insights restricted to the budget tables (#226)**: after the upgrade, an insight
       whose query reads another table (or takes more than 5 s) shows 0: check the
@@ -127,6 +179,11 @@ keeps track of what was done).
 - [ ] **iOS app** (#218): send `model` (hardware model, e.g. "iPhone16,1"), `os_version`
       ("iOS 26.0") and `app_version` ("1.2") in the `device` object of `POST /user/login`
       and `POST /user/login/mfa` (optional: unknown when absent).
+
+- [ ] **iOS and Android apps** (#427): offer to change the date a transaction is counted
+      on from its detail (`PUT /transaction/date` with `id`, `date`; the real date `rdate`
+      stays the one of the bank). No migration: the synchronization never updates the
+      `date` of a known transaction.
 
 - [ ] **Production**: test the connection of Claude to the MCP server from claude.ai
       (Settings → Connectors → Add custom connector). The Docker image applies the OAuth
@@ -193,6 +250,12 @@ keeps track of what was done).
       needs more, send the datasets in several requests (one transaction per request would
       then no longer cover the whole import) or stream the rows. The bank accounts (labels,
       owners) and connections are not in a backup: their credentials live in woob.
+
+- [ ] Purge (Administration → Purge, #453): "local network only" trusts the addresses of
+      the request (peer, `X-Forwarded-For`, `X-Real-IP`, `Forwarded`). A reverse proxy
+      that forwards none of them makes a request from Internet look local: document that
+      the NAS proxy must send `X-Forwarded-For` (passed to PHP by the nginx of the image), or add a
+      setting that turns the purge off entirely.
 
 - [ ] **Production** (two-factor authentication, #166): the migration `2026-10-24_user_mfa`
       (tables `user_mfa`, `mfa_recovery_code`, `mfa_trusted_browser`) is applied at
@@ -291,3 +354,11 @@ keeps track of what was done).
       only the French starter category; an installation in another language (`Savings`,
       `Ahorro`, `Risparmio`, `Sparen`, `Poupança`) has to set it in Settings. Use the
       starter category id (31) or a default per language.
+- [ ] iOS app and MCP: the custom charts and the "By category" chart of the Trends tab
+      (`GET /budget/trends/charts`, `GET /budget/trends/series`,
+      `GET /budget/trends/categories`) and the periods up to 240 months are portal-only; show
+      them in the iOS Trends screen, and expose the series to the MCP `get_trends` tool.
+- [ ] Translations of the custom charts, custom range and "By category" chart of the Trends
+      tab (`trendChart*`, `trendCategories*`, `trendsKind*`, `trendsChartKind`,
+      `trendsCustomRange`, `trendsFrom`, `trendsTo`, `trendsApplyRange`, `trendsRangeInvalid`)
+      in `de`, `es`, `it`, `pt`: to be proofread by native speakers.

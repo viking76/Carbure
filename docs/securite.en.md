@@ -278,7 +278,8 @@ Only these routes do not require a JWT (a unit test checks it):
   `token=`, `access_token=` and `code=` parameters of URLs (`carbure` format of
   `docker/nginx.conf`): the token of a scheduled task not yet migrated to the header
   does not appear there. A proxy placed in front (NAS reverse proxy) may however
-  log the full URL.
+  log the full URL. The successful calls of `GET /api/health` (Docker healthcheck,
+  monitoring, mobile apps) are not written there; its errors (4xx, 5xx) are.
 - The call stack of an error is logged **without the function arguments** (which
   contain the request parameters: password, token…), and the Docker image
   enables `zend.exception_ignore_args`.
@@ -293,7 +294,9 @@ Only these routes do not require a JWT (a unit test checks it):
   `X-Request-Id` header), the **client IP address**, the user, the method and the path
   (URL tokens masked), the caller, the message and its context. Each request
   ends with a line with its HTTP status and duration (INFO, WARNING for 4xx, ERROR
-  for 5xx). A message cannot fake another entry: its line breaks
+  for 5xx). `GET /health`, polled every few minutes by the healthchecks, writes its call
+  and this line at the `debug` level only (`quiet` option of its route); its errors keep
+  their level. A message cannot fake another entry: its line breaks
   are escaped.
 - **Client address**: behind a trusted proxy (private or local address: the image's nginx,
   the NAS reverse proxy), it is the last public address of
@@ -386,6 +389,19 @@ update**. Carbure downloads the key itself just before: woob is only run if its
 fingerprint is exactly the confirmed one; after the update, the key woob has
 kept (`/data/woob/.local/share/woob/keyrings/`) must also be that one, otherwise it
 is deleted and the update fails.
+
+**The key of the official repository is pinned in Carbure**: its SHA-256
+fingerprint (`a1755b379793ff4922a7bfb5f566c019205f805b96f3420aee95938cd0d1634a`, i.e. the SHA-1
+`b5fc136c2d500b8483696a0ee722865842a4cc45` displayed by woob; keys of woob's maintainers,
+unchanged since February 2023) is checked once and for all by Carbure's maintainers
+(`WoobRepository::OFFICIAL_KEYRINGS`). On the first start of the container
+(`tools/woob-trust.php`), Carbure downloads the key of the official repository and, if its
+fingerprint is **exactly** the pinned one, approves it without asking and installs the
+modules, with the same checks as a manual approval: banks can be connected at once. Another
+key (changed, or served by an attacker), another repository (`woob_repository`) or a
+repository not reachable at start still wait for the approval of an administrator, as below. The pin is a SHA-256, not a SHA-1: SHA-1 is broken against
+chosen-prefix collisions, a GPG keyring can carry filler packets, and this approval happens
+with no human looking.
 
 As long as the repository is not approved, Carbure also refuses (`409`, “Trust the woob
 repository first”):

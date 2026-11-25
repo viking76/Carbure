@@ -62,19 +62,25 @@ final class BackupData {
         'rules' => [
             'table' => 'bank_transaction_category_keyword',
             'key' => 'id',
-            'columns' => ['id' => 'int:4294967295', 'keyword' => 'name:60', 'category' => 'int:255', 'notify' => 'bool'],
+            'columns' => ['id' => 'int:4294967295', 'keyword' => 'name:60', 'category' => 'int:255', 'notify' => 'bool',
+                // Added with the migration 2026-11-05_rule_amount: any amount in an older backup
+                'amount' => '?decimal'],
         ],
         'budgets' => [
             'table' => 'budget',
             'key' => 'id',
-            'columns' => ['id' => 'int:' . PHP_INT_MAX, 'category' => 'int:255', 'amount' => 'decimal', 'date' => 'date'],
+            'columns' => ['id' => 'int:' . PHP_INT_MAX, 'category' => 'int:255', 'amount' => 'decimal', 'date' => 'date',
+                // Added with the migration 2026-11-06_budget_note: no note in an older backup
+                'note' => '?string:200'],
         ],
         'insights' => [
             'table' => 'budget_insight',
             'key' => 'id',
             'columns' => ['id' => 'int:4294967295', 'name' => 'name:20', 'color' => 'name:20', 'icon' => '?string:50', 'sql' => 'name:500',
                 // Added with the migration 2026-11-01_insight_enabled: enabled in an older backup
-                'enabled' => 'bool:1'],
+                'enabled' => 'bool:1',
+                // Added with the migration 2026-11-07_insight_position: sorted by id in an older backup
+                'position' => 'int:65535:0'],
         ],
         // Added with the migration 2026-11-03_insight_alert: the alerts of each user
         'insight_alerts' => [
@@ -94,6 +100,8 @@ final class BackupData {
                 'pointed' => 'bool', 'user' => 'user',
                 // Added with the migration 2026-11-02_category_source: unknown in an older backup
                 'category_source' => '?enum:rule|manual',
+                // Added with the migration 2026-11-19_transaction_comment: no comment in an older backup
+                'comment' => '?comment:500',
             ],
         ],
         'deleted_transactions' => [
@@ -278,6 +286,24 @@ final class BackupData {
     }
 
     /**
+     * Check an integer of an imported file, or give the default of its column when it is
+     * missing (column added after the backup).
+     *
+     * @param mixed  $value    The value
+     * @param string $argument "<max>" or "<max>:<default>"
+     * @return int The integer
+     * @throws InvalidArgumentException If invalid
+     */
+    private static function integerOrDefault(mixed $value, string $argument): int
+    {
+        [$max, $default] = array_pad(explode(':', $argument, 2), 2, '');
+        if ($value === null && $default !== '') {
+            return (int)$default;
+        }
+        return self::integer($value, (int)$max);
+    }
+
+    /**
      * Check of a value of each type: function (value, argument of the type).
      *
      * @return array<string, Closure> The checks by kind of type
@@ -285,7 +311,8 @@ final class BackupData {
     private static function checks(): array
     {
         return [
-            'int' => fn(mixed $value, string $max): int => self::integer($value, (int)$max),
+            // int:<max>[:<default>] = the default is the value of a column missing from an older backup
+            'int' => fn(mixed $value, string $argument): int => self::integerOrDefault($value, $argument),
             'string' => fn(mixed $value, string $max): string => self::text($value, (int)$max, 0),
             'name' => fn(mixed $value, string $max): string => self::text($value, (int)$max, 1),
             'enum' => fn(mixed $value, string $choices): string => self::choice($value, explode('|', $choices)),
@@ -295,7 +322,21 @@ final class BackupData {
             // bool:<default> = the value of a column missing from an older backup
             'bool' => fn(mixed $value, string $default): int => $value === null && $default !== '' ? (int)$default : self::flag($value),
             'user' => fn(mixed $value): ?string => $value === null ? null : self::text($value, 20, 1),
+            // comment:<max> = stored like the API does: trimmed, null when empty
+            'comment' => fn(mixed $value, string $max): ?string => self::comment(self::text($value, (int)$max, 0)),
         ];
+    }
+
+    /**
+     * A comment as the API stores it: trimmed, null when empty ("0" is a comment).
+     *
+     * @param string $text The text checked
+     * @return string|null The comment, null for none
+     */
+    private static function comment(string $text): ?string
+    {
+        $text = trim($text);
+        return $text === '' ? null : $text;
     }
 
     /**

@@ -18,7 +18,8 @@ test('shows the amount of each insight for the month', async ({ userPage: page }
     await openTab(page, tr('tabInsights'));
 
     const expenses = card(page, 'Dépenses');
-    await expect(expenses.locator('.insight-value')).toHaveText(euros(1584.2));
+    // A negative amount shows its sign, not only the red color (#466)
+    await expect(expenses.locator('.insight-value')).toHaveText(euros(-1584.2));
     await expect(expenses.locator('.insight-value')).toHaveClass(/negative/);
     // Only the administrators manage the insights (the user hides one and sets his alert); nothing hidden to add again
     await expect(page.getByRole('button', { name: tr('addInsight') })).toHaveCount(0);
@@ -40,7 +41,7 @@ test('hides an insight, then shows it again with the + button', async ({ userPag
 
     // The last hidden one shown: the list closes
     await expect(catalog).toHaveCount(0);
-    await expect(card(page, 'Dépenses').locator('.insight-value')).toHaveText(euros(1584.2));
+    await expect(card(page, 'Dépenses').locator('.insight-value')).toHaveText(euros(-1584.2));
     await expect(page.getByRole('button', { name: tr('addInsight') })).toHaveCount(0);
 });
 
@@ -59,7 +60,7 @@ test('adds an insight whose query is checked while typing', async ({ adminPage: 
 
     await modal.getByRole('button', { name: tr('save') }).click();
     await expect(page.locator('.toast')).toHaveText(tr('insightAdded'));
-    await expect(card(page, 'Loyer').locator('.insight-value')).toHaveText(euros(950));
+    await expect(card(page, 'Loyer').locator('.insight-value')).toHaveText(euros(-950));
     await expect(card(page, 'Loyer').locator('.insight-icon')).toHaveText('home');
 });
 
@@ -144,7 +145,78 @@ test('sets an alert on an insight, changes it, then removes it', async ({ userPa
     await expect(expenses.locator('.insight-alert-text')).toHaveText(tr('insightAlert_below', { amount: euros(500.5) }));
 
     await bell.click();
-    await modal.getByRole('button', { name: tr('insightAlertRemove') }).click();
+    // The small red trash button at the bottom left of the footer, as in a transaction detail
+    const remove = modal.getByRole('button', { name: tr('insightAlertRemove') });
+    await expect(remove).toHaveClass(/btn-danger-icon/);
+    await expect(remove).toHaveClass(/modal-footer-start/);
+    await expect(remove.locator('.material-icons')).toHaveText('delete');
+    await remove.click();
     await expect(page.locator('.toast')).toHaveText(tr('insightAlertRemoved', { name: 'Dépenses' }));
     await expect(expenses.locator('.insight-alert-state')).toHaveCount(0);
+});
+
+/**
+ * Names of the insight cards, in their order on the grid
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<string[]>}
+ */
+async function cardNames(page) {
+    return page.locator('.insight-card .insight-label').allTextContents();
+}
+
+/**
+ * Adds two insights by the API, then opens the Insights tab: Dépenses, Revenus, Loyer
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').APIRequestContext} api
+ */
+async function threeInsights(page, api) {
+    const sql = 'SELECT SUM(amount) AS amount FROM bank_transaction WHERE MONTH(date) = {month} AND YEAR(date) = {year}';
+    for (const [name, color] of [['Revenus', 'green'], ['Loyer', 'blue']]) {
+        expect((await api.post('/api/insight', { data: { name, color, sql } })).ok()).toBe(true);
+    }
+    await openTab(page, tr('tabInsights'));
+    await expect.poll(() => cardNames(page)).toEqual(['Dépenses', 'Revenus', 'Loyer']);
+}
+
+test('moves a card with the arrow keys from its handle, for the whole household (#467)', async ({ userPage: page, api }) => {
+    await threeInsights(page, api);
+
+    const handle = card(page, 'Dépenses').getByRole('button', { name: tr('insightMoveOf', { name: 'Dépenses' }) });
+    await handle.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => cardNames(page)).toEqual(['Revenus', 'Dépenses', 'Loyer']);
+    // The focus stays on the handle of the card moved, its new place is announced
+    await expect(card(page, 'Dépenses').locator('.insight-drag')).toBeFocused();
+    await expect(page.locator('[aria-live="polite"]').filter({ hasText: 'Dépenses' }))
+        .toHaveText(tr('insightMoved', { name: 'Dépenses', position: 2, count: 3 }));
+
+    await page.keyboard.press('End');
+    await expect.poll(() => cardNames(page)).toEqual(['Revenus', 'Loyer', 'Dépenses']);
+
+    // Saved: the same order after a reload, and in the API
+    await page.reload();
+    await openTab(page, tr('tabInsights'));
+    await expect.poll(() => cardNames(page)).toEqual(['Revenus', 'Loyer', 'Dépenses']);
+    const shown = await (await api.get('/api/budget/insights')).json();
+    expect(shown.map(i => i.name)).toEqual(['Revenus', 'Loyer', 'Dépenses']);
+});
+
+test('drags a card by its handle onto another cell of the grid (#467)', async ({ adminPage: page, api }) => {
+    await threeInsights(page, api);
+
+    const handle = card(page, 'Loyer').locator('.insight-drag');
+    const target = card(page, 'Dépenses');
+    const from = await handle.boundingBox();
+    const to = await target.boundingBox();
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    // The card dragged is lifted and snaps to the cell under the pointer
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+    await expect(card(page, 'Loyer')).toHaveClass(/dragging/);
+    await expect.poll(() => cardNames(page)).toEqual(['Loyer', 'Dépenses', 'Revenus']);
+    await page.mouse.up();
+    await expect(card(page, 'Loyer')).not.toHaveClass(/dragging/);
+
+    const shown = await (await api.get('/api/budget/insights')).json();
+    expect(shown.map(i => i.name)).toEqual(['Loyer', 'Dépenses', 'Revenus']);
 });

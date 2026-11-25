@@ -101,11 +101,15 @@ class ApiResolverTest extends TestCase
         'GET /bank/woob' => 'admin',
         'GET /bank/woob/update' => 'admin',
         'GET /budget' => 'user',
+        'GET /budget/copy' => 'user',
         'GET /budget/flow' => 'user',
         'GET /budget/flow/transactions' => 'user',
         'GET /budget/insights' => 'user',
         'GET /budget/insights/history' => 'user',
         'GET /budget/trends' => 'user',
+        'GET /budget/trends/categories' => 'user',
+        'GET /budget/trends/charts' => 'user',
+        'GET /budget/trends/series' => 'user',
         'GET /category' => 'user',
         'GET /category/keyword' => 'user',
         'GET /category/keyword/count' => 'admin',
@@ -121,6 +125,7 @@ class ApiResolverTest extends TestCase
         'GET /mcp/settings' => 'user',
         'GET /oauth/authorize' => 'public',
         'GET /oauth/client' => 'user',
+        'GET /purge' => 'admin',
         'GET /system/config' => 'admin',
         'GET /system/logs' => 'admin',
         'GET /system/logs/entries' => 'admin',
@@ -159,6 +164,7 @@ class ApiResolverTest extends TestCase
         'POST /oauth/approve' => 'user',
         'POST /oauth/register' => 'public',
         'POST /oauth/token' => 'public',
+        'POST /purge' => 'admin',
         'POST /system/jwt-secret' => 'admin',
         'POST /system/migrate' => 'admin',
         'POST /system/push-register' => 'admin',
@@ -180,17 +186,22 @@ class ApiResolverTest extends TestCase
         'POST /user/unlock' => 'admin',
         'PUT /bank' => 'admin',
         'PUT /bank/backend' => 'admin',
+        'PUT /budget/trends/charts' => 'admin',
         'PUT /category' => 'admin',
         'PUT /category/keyword' => 'admin',
         'PUT /category/keyword/settings' => 'admin',
         'PUT /insight' => 'admin',
         'PUT /insight/alert' => 'user',
         'PUT /insight/enabled' => 'user',
+        'PUT /insight/order' => 'user',
         'PUT /mcp/settings' => 'admin',
         'PUT /system/config' => 'admin',
         'PUT /tag' => 'user',
         'PUT /transaction' => 'user',
+        'PUT /transaction/categories' => 'user',
         'PUT /transaction/category' => 'user',
+        'PUT /transaction/comment' => 'user',
+        'PUT /transaction/date' => 'user',
         'PUT /transaction/pointed' => 'user',
         'PUT /transaction/split' => 'user',
         'PUT /transaction/tags' => 'user',
@@ -252,6 +263,29 @@ class ApiResolverTest extends TestCase
         $this->assertSame(Changes::KINDS, ApiResolver::findRoute('/backup/import', 'POST')['apiRoute']->changes);
         $this->assertSame([], ApiResolver::findRoute('/user', 'PUT')['apiRoute']->changes);
         $this->assertNull(ApiResolver::findRoute('/changes', 'GET')['apiRoute']->changes);
+    }
+
+    public function testOnlyTheHealthCheckIsQuiet()
+    {
+        $quiet = [];
+        foreach (glob(__DIR__ . '/../../src/resources/*.php') as $file) {
+            $class = new ReflectionClass(ApiResolver::RESOURCES_NAMESPACE . basename($file, '.php'));
+            foreach ($class->getMethods() as $method) {
+                foreach ($method->getAttributes(ApiRoute::class) as $attribute) {
+                    $route = $attribute->newInstance();
+                    if ($route->quiet) {
+                        $quiet[] = $route->method . ' ' . $route->path;
+                    }
+                }
+            }
+        }
+        // Logged at the DEBUG level only: a route that a user calls must stay visible
+        $this->assertSame(['GET /health'], $quiet);
+
+        // Carried by the cached routes
+        ApiResolver::clearRouteCache();
+        $this->assertTrue(ApiResolver::findRoute('/health', 'GET')['apiRoute']->quiet);
+        $this->assertFalse(ApiResolver::findRoute('/user/me', 'GET')['apiRoute']->quiet);
     }
 
     public function testAnUnknownKindOfDataIsRefused()

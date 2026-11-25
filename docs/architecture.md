@@ -47,7 +47,7 @@ flowchart LR
 | `Mailer` | Client SMTP intégré (sans dépendance) : envoi des notifications par email |
 | `Messages` | Textes des notifications (push et email) dans la langue du destinataire |
 | `BankFile`, `import/` | Lecture des relevés importés (OFX/QFX, QIF, CAMT.053, CSV avec un profil par banque) |
-| `WoobRepository` | Dépôt des modules bancaires de woob : empreinte de sa clé, approbation par un administrateur |
+| `WoobRepository` | Dépôt des modules bancaires de woob : empreinte de sa clé, clé officielle épinglée (approuvée au premier démarrage), sinon approbation par un administrateur |
 | `Logger` | Logs bufferisés dans `data/logs/carbure_AAAAMMJJ.log`, une entrée JSON par ligne : heure ISO 8601, niveau, identifiant de requête (`uid`), IP du client, utilisateur, méthode et chemin, message et contexte ; une ligne de fin par requête (statut, durée) ; purge après `log_retention_days` jours |
 
 ## Traitement d'une requête
@@ -183,7 +183,7 @@ l'identité de l'utilisateur du jeton. Voir [Agents IA (MCP)](mcp.md).
 
 | Élément | Rôle |
 |---|---|
-| `docker/Dockerfile` | `php:8.5.12-fpm-alpine` + nginx (image multi-étapes : woob est construit à part, sans compilateur dans l'image finale), extensions `mysqli` et APCu, woob et les paquets Python des modules bancaires (`curl_cffi`, `python-jose`, `chompjs`, `schwifty`, `pycryptodomex`) dans `/opt/woob`, `HEALTHCHECK` sur `/api/health` |
+| `docker/Dockerfile` | `php:8.5.13-fpm-alpine` + nginx (image multi-étapes : woob est construit à part, sans compilateur dans l'image finale), extensions `mysqli` et APCu, woob et les paquets Python des modules bancaires (`curl_cffi`, `python-jose`, `chompjs`, `schwifty`, `pycryptodomex`) dans `/opt/woob`, `HEALTHCHECK` sur `/api/health` |
 | `docker/nginx.conf` | Site nginx (portail, Swagger, API, en-têtes de sécurité, limitation des routes de connexion) ; `docker/nginx-api.conf` : réglages de l'API partagés par ses emplacements ; `docker/nginx-real-ip.sh` : adresse du client derrière les proxys de confiance (`TRUSTED_PROXIES`) |
 | `docker/php.ini`, `docker/php-fpm.conf` | Réglages PHP et PHP-FPM |
 | `docker/demo/Dockerfile`, `docker/demo/entrypoint.sh` | Image de démonstration (`ltoinel/carbure:demo`) : l'image habituelle avec MariaDB ; à chaque démarrage, base recréée, configuration à secrets aléatoires (`demo=true`), données de `tests/e2e/server/seed.php --demo` avec le compte `demo` / `carbure` et un mot de passe `admin` aléatoire affiché dans les journaux, puis l'entrypoint habituel ; `docker stop` arrête nginx, PHP-FPM et MariaDB proprement |

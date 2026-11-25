@@ -101,6 +101,78 @@ class InsightTest extends DatabaseTestCase
         }
     }
 
+    public function testOrderOfTheInsights()
+    {
+        // Sorted by id until ordered (#467)
+        $second = (int)Insight::create('Revenus', 'green', self::SQL)['id'];
+        $third = (int)Insight::create('Loyer', 'blue', self::SQL)['id'];
+        $this->assertSame([1, $second, $third], array_map('intval', array_column(Budget::getInsights(), 'id')));
+
+        $this->assertSame([$third, 1, $second], Insight::setOrder([$third, '1', $second]));
+        $this->assertSame([$third, 1, $second], array_map('intval', array_column(Budget::getInsights(), 'id')));
+        $this->assertSame([$third, 1, $second], array_map('intval', array_column(Insight::get(), 'id')));
+        // The position stays internal to the order
+        $this->assertArrayNotHasKey('position', Budget::getInsights()[0]);
+
+        // The insights not listed (hidden, created meanwhile) go after the ones listed, in their order
+        Insight::setEnabled(1, false);
+        $fourth = (int)Insight::create('Épargne', 'teal', self::SQL)['id'];
+        $this->assertSame([$second, $third, $fourth], Insight::setOrder([$second, $third]));
+        Insight::setEnabled(1, true);
+        $this->assertSame([$second, $third, 1, $fourth], array_map('intval', array_column(Budget::getInsights(), 'id')));
+    }
+
+    public function testInvalidOrderOfTheInsights()
+    {
+        foreach ([[1, 1], ['x'], [1.5], [[1]], [-1]] as $ids) {
+            try {
+                Insight::setOrder($ids);
+                $this->fail('Order accepted: ' . json_encode($ids));
+            } catch (ApiError $e) {
+                $this->assertSame([400, 'insight_order_invalid'], [$e->getCode(), $e->getErrorCode()]);
+            }
+        }
+        try {
+            Insight::setOrder([1, 999]);
+            $this->fail('Unknown insight ordered');
+        } catch (ApiError $e) {
+            $this->assertSame([404, 'insight_not_found'], [$e->getCode(), $e->getErrorCode()]);
+        }
+    }
+
+    public function testAMemberOfTheHouseholdOrdersTheInsights()
+    {
+        // As showing or hiding them: the order is the one of the whole household
+        $second = (int)Insight::create('Revenus', 'green', self::SQL)['id'];
+        $this->loginAs(self::USER);
+        $this->assertSame([$second, 1], Insight::setOrder([$second, 1]));
+    }
+
+    public function testBeforeTheMigrationTheInsightsAreSortedById()
+    {
+        $second = (int)Insight::create('Revenus', 'green', self::SQL)['id'];
+        Insight::setOrder([$second, 1]);
+        Db::query("ALTER TABLE budget_insight DROP COLUMN position");
+        $ready = new ReflectionProperty(Insight::class, 'positionReady');
+        $ready->setValue(null, null);
+        try {
+            $this->assertSame([1, $second], array_map('intval', array_column(Budget::getInsights(), 'id')));
+            // The backups work without the column
+            $exported = json_decode(Backup::export('insights'), true)['datasets']['insights'];
+            Backup::import(['insights' => $exported]);
+            $this->assertCount(2, Insight::get());
+            try {
+                Insight::setOrder([$second, 1]);
+                $this->fail('Ordered before the migration');
+            } catch (ApiError $e) {
+                $this->assertSame([409, 'insight_migration_pending'], [$e->getCode(), $e->getErrorCode()]);
+            }
+        } finally {
+            Db::query("ALTER TABLE budget_insight ADD COLUMN `position` smallint(5) unsigned NOT NULL DEFAULT 0 AFTER `enabled`");
+            $ready->setValue(null, null);
+        }
+    }
+
     public function testIconAndCheck()
     {
         $created = Insight::create('Revenus', 'green', self::SQL, 'savings');

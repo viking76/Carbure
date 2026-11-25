@@ -136,7 +136,7 @@ final class Backup {
      * @param list<string> $names The datasets
      * @return list<string> The datasets available, in the same order
      */
-    private static function available(array $names): array
+    public static function available(array $names): array
     {
         return array_values(array_filter($names, fn(string $name): bool => $name !== 'insight_alerts' || InsightAlert::ready()));
     }
@@ -192,8 +192,11 @@ final class Backup {
     /**
      * The columns of a dataset in the database: without the ones of a pending migration,
      * enabled of the insights (2026-11-01_insight_enabled: exported as null, imported
-     * shown) and category_source of the transactions (2026-11-02_category_source: exported
-     * as null, not imported).
+     * shown), category_source of the transactions (2026-11-02_category_source: exported
+     * as null, not imported), amount of the rules (2026-11-05_rule_amount: exported as
+     * null, not imported), note of the budgets (2026-11-06_budget_note: exported as null, not
+     * imported) and comment of the transactions (2026-11-19_transaction_comment: exported as
+     * null, not imported).
      *
      * @param string $name The dataset
      * @return list<string> The columns
@@ -201,11 +204,15 @@ final class Backup {
     private static function columns(string $name): array
     {
         $columns = array_keys(BackupData::DATASETS[$name]['columns']);
-        $pending = match ($name) {
-            'insights' => Insight::ready() ? [] : ['enabled'],
-            'transactions' => Transaction::categorySourceReady() ? [] : ['category_source'],
+        // Each column of a migration, with the check that it is applied
+        $migrated = match ($name) {
+            'insights' => ['enabled' => Insight::ready(...), 'position' => Insight::positionReady(...)],
+            'transactions' => ['category_source' => Transaction::categorySourceReady(...), 'comment' => Transaction::commentReady(...)],
+            'rules' => ['amount' => Category::amountReady(...)],
+            'budgets' => ['note' => Budget::noteReady(...)],
             default => [],
         };
+        $pending = array_keys(array_filter($migrated, fn(callable $ready): bool => !$ready()));
         return array_values(array_diff($columns, $pending));
     }
 
@@ -238,16 +245,16 @@ final class Backup {
      * Check the imported insights as when they are saved in the portal (their query is
      * stored and run by the server), and normalize them the same way.
      *
-     * @param list<list<mixed>> $insights The values of the insights (id, name, color, icon, sql, enabled)
+     * @param list<list<mixed>> $insights The values of the insights (id, name, color, icon, sql, enabled, position)
      * @return list<list<mixed>> The values as saved by Insight (name and query trimmed, empty icon as null)
      * @throws Error 400 If an insight is invalid
      */
     private static function checkInsights(array $insights): array
     {
-        foreach ($insights as $index => [$id, $name, $color, $icon, $sql, $enabled]) {
+        foreach ($insights as $index => [$id, $name, $color, $icon, $sql, $enabled, $position]) {
             try {
                 [$name, $color, $sql] = Insight::validate((string)$name, (string)$color, (string)$sql);
-                $insights[$index] = [$id, $name, $color, Insight::icon($icon === null ? null : (string)$icon), $sql, $enabled];
+                $insights[$index] = [$id, $name, $color, Insight::icon($icon === null ? null : (string)$icon), $sql, $enabled, $position];
             } catch (Error $e) {
                 throw new Error("insights, row " . ($index + 1) . ": " . $e->getMessage(), 400);
             }

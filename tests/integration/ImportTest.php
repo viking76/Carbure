@@ -1,5 +1,6 @@
 <?php
 
+use Carbure\Lib\ApiError;
 use Carbure\Lib\Db;
 use Carbure\Lib\Webservice;
 use Carbure\Resources\Transaction;
@@ -81,6 +82,38 @@ class ImportTest extends DatabaseTestCase
         $this->assertSame(['new' => 0, 'known' => 3, 'duplicate' => 1], $again['counts']);
         $this->assertSame(['duplicate', 'known', 'known', 'known'], array_column($again['rows'], 'status'));
         $this->assertSame(0, Transaction::import($this->statement(), 'releve.csv')['imported']);
+    }
+
+    public function testImportOnAChosenAccount()
+    {
+        // #485: the transactions go to the account chosen (id 3: bank / fail)
+        $this->loginAs(self::USER);
+        $this->assertSame(3, Transaction::import($this->statement(), 'releve.csv', null, '3')['imported']);
+        $rows = Db::select("SELECT DISTINCT bank_name, account_number FROM bank_transaction WHERE label IN ('CB SUPERMARCHE BIS', 'VIR SALAIRE MAI')", "")
+            ->fetch_all(MYSQLI_ASSOC);
+        $this->assertSame([['bank_name' => 'bank', 'account_number' => 'fail']], $rows);
+    }
+
+    public function testImportWithoutAccountKeepsTheNumberOfTheFile()
+    {
+        $this->loginAs(self::USER);
+        Transaction::import($this->statement(), 'releve.csv', null, '');
+        $row = Db::queryOne("SELECT bank_name, account_number FROM bank_transaction WHERE label = 'VIR SALAIRE MAI'", "");
+        $this->assertNull($row['bank_name']);
+        $this->assertNull($row['account_number']);
+    }
+
+    public function testImportOnAnUnknownAccount()
+    {
+        $this->loginAs(self::USER);
+        try {
+            Transaction::import($this->statement(), 'releve.csv', null, 999);
+            $this->fail('Imported on an unknown account');
+        } catch (ApiError $e) {
+            $this->assertSame(404, $e->getCode());
+            $this->assertSame('account_not_found', $e->getErrorCode());
+        }
+        $this->assertNull(Db::queryOne("SELECT id FROM bank_transaction WHERE label = 'VIR SALAIRE MAI'", ""));
     }
 
     public function testDeletedTransactionNotImportedAgain()

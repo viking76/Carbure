@@ -31,6 +31,19 @@ export function toBase64(buffer) {
 }
 
 /**
+ * Account offered for the transactions of a file: the account of the household whose
+ * number is the one read in the file, else none ('': the number of the file is kept)
+ * @param {{account?: string|null}|null} preview - Answer of POST /transaction/import/preview
+ * @param {Array<{id: number, account_number: string}>} accounts - Accounts of the household
+ * @returns {number|string} Id of the account, or ''
+ */
+export function importAccountOf(preview, accounts) {
+    const number = preview && preview.account ? String(preview.account).replace(/\s/g, '') : '';
+    const account = number ? (accounts || []).find(a => String(a.account_number).replace(/\s/g, '') === number) : null;
+    return account ? account.id : '';
+}
+
+/**
  * Creates the import module mixin for Vue components
  * @param {Function} getApiService - Function that returns the API service instance
  * @returns {Object} Vue mixin with the import data and methods
@@ -47,6 +60,8 @@ export function createImportModule(getApiService) {
                 importPreview: null,
                 // Rows to import, by index
                 importSelection: {},
+                // Account of the imported transactions (id of GET /bank), '' for the one of the file
+                importAccountId: '',
                 importLoading: false,
                 importing: false,
                 importError: null,
@@ -89,10 +104,11 @@ export function createImportModule(getApiService) {
         },
 
         methods: {
-            /** Opens the import window */
+            /** Opens the import window, with the accounts of the household to choose from */
             openImport() {
                 this.resetImport();
                 this.showImport = true;
+                this.loadManualAccounts();
             },
 
             /** Closes the import window */
@@ -108,6 +124,7 @@ export function createImportModule(getApiService) {
                 this.importFile = null;
                 this.importPreview = null;
                 this.importSelection = {};
+                this.importAccountId = '';
                 this.importError = null;
                 this.importDragOver = false;
             },
@@ -158,6 +175,11 @@ export function createImportModule(getApiService) {
                         selection[row.index] = row.status === 'new';
                     }
                     this.importSelection = selection;
+                    // The accounts asked when the window opened may still be loading
+                    if (!this.manualAccounts.length) {
+                        await this.loadManualAccounts();
+                    }
+                    this.importAccountId = importAccountOf(this.importPreview, this.manualAccounts);
                 } catch (err) {
                     this.importFile = null;
                     this.importError = this.apiErrorText(err);
@@ -198,7 +220,8 @@ export function createImportModule(getApiService) {
                 this.importError = null;
                 try {
                     const selected = Object.keys(this.importSelection).filter(index => this.importSelection[index]).map(Number);
-                    const result = await getApiService().importTransactions(this.importFile.content, this.importFile.name, selected);
+                    const account = this.importAccountId === '' ? null : Number(this.importAccountId);
+                    const result = await getApiService().importTransactions(this.importFile.content, this.importFile.name, selected, account);
                     this.importing = false;
                     this.closeImport();
                     this.showToast(this.t('importDone', { count: result.imported, categorized: result.categorized }), 4000);

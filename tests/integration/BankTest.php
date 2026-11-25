@@ -1176,6 +1176,13 @@ class BankTest extends DatabaseTestCase
         $this->assertSame(0, Bank::alertRuleMatches([]));
     }
 
+    public function testRuleWithAmountNotifiesOnlyItsAmount()
+    {
+        Db::query("INSERT INTO bank_transaction_category_keyword (keyword, category, notify, amount) VALUES ('PAYPAL', 1, 1, 10.00)");
+        $this->assertSame(0, Bank::alertRuleMatches([['label' => 'PAYPAL EUROPE', 'amount' => -25.0]]));
+        $this->assertGreaterThan(0, Bank::alertRuleMatches([['label' => 'PAYPAL EUROPE', 'amount' => -10.0]]));
+    }
+
     public function testNotifyEveryUserOfTheHousehold()
     {
         // The devices of every user are notified, whoever added the account

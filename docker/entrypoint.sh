@@ -29,12 +29,14 @@ fi
 # the signature of the bank modules; without it, installing a module fails with "No
 # keyring found") and installed bank modules. In the background (the portal starts
 # without waiting for the network), as www-data (the owner of /data/woob).
-# The keyring of the woob repository is trusted by an administrator, who compares its
-# fingerprint in the portal (Accounts page, "update the bank modules"): until then, the
-# modules are not updated. The next keyrings are checked by woob with the previous one.
+# At the first start, the keyring of the official woob repository is trusted when it is
+# exactly the one pinned by Carbure, and the modules are installed (tools/woob-trust.php,
+# #471); any other keyring is trusted by an administrator, who compares its fingerprint
+# in the portal (Accounts page, "update the bank modules"): until then, the modules are
+# not updated. The next keyrings are checked by woob with the previous one.
 woob_update() {
     if [ -z "$(ls -A /data/woob/.local/share/woob/keyrings 2>/dev/null)" ]; then
-        echo "Carbure: woob repository not trusted yet: an administrator must trust it from the Accounts page of the portal to update the bank modules" >&2
+        su -s /bin/sh www-data -c "php $APP/tools/woob-trust.php" < /dev/null > /dev/null || true
         return 0
     fi
     # Only once a keyring is trusted: without one, woob would trust the keyring of its

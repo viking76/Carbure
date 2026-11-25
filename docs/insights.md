@@ -60,8 +60,8 @@ La carte affiche **toujours la valeur absolue du montant, avec deux décimales e
 - un **pourcentage** ou un **nombre** (de transactions, de mois…) s'affiche aussi avec `€` :
   un taux d'épargne de 32,5 % apparaît « 32,50 € ». Les recettes concernées l'indiquent
   dans leur nom (`%`, « Nb ») pour lever l'ambiguïté ;
-- le **signe** n'apparaît que par la couleur : une dépense (montant négatif) est rouge, une
-  rentrée ou un écart favorable ne l'est pas. Les recettes suivent la convention des
+- un montant négatif s'affiche avec son **signe** (« -1 584,20 € ») et en rouge, une
+  rentrée ou un écart favorable sans signe ni rouge. Les recettes suivent la convention des
   transactions : **négatif = argent qui sort** ;
 - une requête qui ne renvoie rien (`NULL`, par exemple aucune transaction ce mois-là) ou qui
   échoue affiche **0,00 €** ;
@@ -76,7 +76,7 @@ Les tables utiles (voir [Modèle de données](modele-donnees.md)) :
 |---|---|
 | `bank_transaction` | `date` (date de débit, celle du mois affiché), `rdate` (date réelle de l'opération : jour d'un paiement par carte), `type`, `label`, `category`, `amount` (négatif = débit), `pointed` (1 = vérifiée), `bank_name`, `account_number`, `split_of` (une part d'une transaction répartie : l'id de la transaction d'origine, sinon `NULL`) |
 | `bank_transaction_category` | `id`, `name`, `parent_category` (0 = catégorie principale), `type` : `DEBIT`, `CREDIT` ou `HORS-BUDGET` |
-| `budget` | `category`, `amount` (montant positif prévu), `date` (premier jour du mois) |
+| `budget` | `category`, `amount` (montant positif prévu), `date` (premier jour du mois), `note` |
 | `bank_account` | `bank_name`, `account_number`, `label` (nom donné au compte) |
 | `tag` | `id`, `name` (sans le `#`), `start_date`, `end_date` |
 | `transaction_tag` | `transaction_id` (`bank_transaction.id`), `tag_id` (`tag.id`) |

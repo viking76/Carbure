@@ -11,6 +11,7 @@
 
 namespace Carbure\Resources;
 
+use Carbure\Lib\ApiError;
 use Carbure\Lib\ApiRoute;
 use Carbure\Lib\Config;
 use Carbure\Lib\Db;
@@ -18,7 +19,12 @@ use Carbure\Lib\Month;
 use Error;
 
 final class Budget {
-    
+
+    /**
+     * Longest period of the trends, and furthest end of a period, in months (20 years)
+     */
+    public const MAX_TREND_MONTHS = 240;
+
     /**
      * Get the current budget consumption by category.
      *
@@ -28,12 +34,16 @@ final class Budget {
      * @param int|string|null $month    The month to get the budget
      * @param int|string|null $year     The year to get the budget
      * @param int|string|null $category The parent category id
-     * @return list<array<string, mixed>> The list of budget items; besides budget, consummed and progress:
-     *               budget_mode ('own' or 'children': sum of the sub-categories),
-     *               children (number of sub-categories) and children_budget (their sum)
+     * @param bool|int|string|null $own With a parent category: also an item for the transactions
+     *               put on the parent itself, which no sub-category shows ("true"/"1" from a query string)
+     * @return list<array<string, mixed>> The list of budget items; besides budget, note (of the
+     *               budget of the month, null if none), consummed and progress: budget_mode ('own' or 'children': sum of the sub-categories),
+     *               children (number of sub-categories) and children_budget (their sum); with $own, the item
+     *               of the transactions of the parent itself has own = true (id of the parent, no budget)
      */
     #[ApiRoute('/budget', method: 'GET')]
-    public static function get(int|string|null $month = null, int|string|null $year = null, int|string|null $category = 0): array
+    public static function get(int|string|null $month = null, int|string|null $year = null, int|string|null $category = 0,
+        bool|int|string|null $own = false): array
     {
         [$from, $to] = Month::range($month, $year);
 
@@ -49,7 +59,7 @@ final class Budget {
         $budgets = self::budgets($from, $to);
 
         // Categories of the requested level with their budget of the month
-        $sql = "SELECT c.id, c.name, c.type, c.icon, c.color, IFNULL(b.amount, 0) AS budget
+        $sql = "SELECT c.id, c.name, c.type, c.icon, c.color, IFNULL(b.amount, 0) AS budget, " . self::noteColumn('b') . "
                 FROM bank_transaction_category c
                 LEFT JOIN budget b ON b.category = c.id AND b.date >= ? AND b.date < ?
                 WHERE c.parent_category = ?";
@@ -76,15 +86,45 @@ final class Budget {
             $row['budget_mode'] = $mode;
             $row['children'] = count($kids);
             $row['children_budget'] = $childrenBudget;
-            $row['consummed'] = $total === null ? 0 : round(abs($total), 2);
-            $row['progress'] = ($total === null || $amount == 0) ? 0 : (int)abs(round($total / $amount * 100));
+            $consummed = self::consummed($row['type'], $total);
+            $row['consummed'] = $consummed;
+            $row['progress'] = $amount == 0 ? 0 : (int)abs(round($consummed / $amount * 100));
             $budget[] = $row;
+        }
+
+        // Transactions put on the parent itself (rules may target it): shown apart, or they would be in no card
+        if ((int)$category !== 0 && filter_var($own, FILTER_VALIDATE_BOOLEAN) && isset($totals[$category])) {
+            $budget[] = self::ownItem((int)$category, (float)$totals[$category]);
         }
 
         // Most consumed first
         usort($budget, fn($a, $b) => $b['consummed'] <=> $a['consummed']);
 
         return $budget;
+    }
+
+    /**
+     * Budget item of the transactions put on a parent category itself rather than on
+     * one of its sub-categories: no budget of its own, only what they consume.
+     *
+     * @param int   $category The parent category id
+     * @param float $total    Sum of the transactions of the month put on the parent
+     * @return array<string, mixed> The item, with the columns of the parent and own = true
+     */
+    private static function ownItem(int $category, float $total): array
+    {
+        $row = Db::queryOne("SELECT id, name, type, icon, color FROM bank_transaction_category WHERE id = ?", "i", $category)
+            ?? ['id' => $category, 'name' => '', 'type' => 'DEBIT', 'icon' => '', 'color' => ''];
+        return $row + [
+            'budget' => '0.00',
+            'note' => null,
+            'budget_mode' => 'own',
+            'children' => 0,
+            'children_budget' => 0,
+            'consummed' => self::consummed((string)$row['type'], $total),
+            'progress' => 0,
+            'own' => true,
+        ];
     }
 
     /**
@@ -116,6 +156,28 @@ final class Budget {
     }
 
     /**
+     * Consumption of a category in the direction of its type: the net spending of an
+     * expense category (DEBIT), the net income of an income category (CREDIT), never
+     * negative (a refund larger than the spending of the month leaves 0 spent, not an
+     * overspending); the absolute value for an off-budget category.
+     *
+     * @param string     $type  Type of the category: DEBIT, CREDIT or HORS-BUDGET
+     * @param float|null $total Sum of the transactions of the month (null: none)
+     * @return float The consumption, rounded to the cent
+     */
+    private static function consummed(string $type, ?float $total): float
+    {
+        if ($total === null) {
+            return 0;
+        }
+        return round(match ($type) {
+            'DEBIT' => max(0, -$total),
+            'CREDIT' => max(0, $total),
+            default => abs($total),
+        }, 2);
+    }
+
+    /**
      * How the budget of a category is computed: its own amount, or the sum of the
      * budgets of its sub-categories when it has some and no amount of its own.
      *
@@ -123,9 +185,38 @@ final class Budget {
      * @param int   $children Number of sub-categories
      * @return string 'own' or 'children'
      */
-    private static function budgetMode(float $amount, int $children): string
+    public static function budgetMode(float $amount, int $children): string
     {
         return $children > 0 && $amount == 0 ? 'children' : 'own';
+    }
+
+    /** Longest note of a budget, in characters */
+    public const NOTE_LENGTH = 200;
+
+    /** Cache of noteReady() */
+    private static ?bool $noteReady = null;
+
+    /**
+     * Whether the budgets have their note (migration 2026-11-06_budget_note). Read once
+     * per request.
+     *
+     * @return bool
+     */
+    public static function noteReady(): bool
+    {
+        return self::$noteReady ??= Db::queryOne("SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'budget' AND COLUMN_NAME = 'note'", "") !== null;
+    }
+
+    /**
+     * SQL of the note of a budget in a SELECT: NULL before the migration 2026-11-06_budget_note.
+     *
+     * @param string $alias Alias of the table budget
+     * @return string "<alias>.note" or "NULL AS note"
+     */
+    private static function noteColumn(string $alias): string
+    {
+        return self::noteReady() ? "$alias.note" : "NULL AS note";
     }
 
     /**
@@ -136,25 +227,57 @@ final class Budget {
      * @param int|float|string $amount   The amount of the budget (a number or a numeric string)
      * @param int|string|null  $month    The month of the budget
      * @param int|string|null  $year     The year of the budget
+     * @param string|null      $note     Reminder of what the budget covers (200 characters at
+     *                                   most); "" removes it, null (not sent) keeps the current one
      * @return bool True on success
+     * @throws Error If the note is too long (400), or sent before the migration 2026-11-06_budget_note (409)
      */
     #[ApiRoute('/budget', method: 'POST', changes: ['budgets'])]
-    public static function create(int $category, int|float|string $amount, int|string|null $month = null, int|string|null $year = null): bool
+    public static function create(int $category, int|float|string $amount, int|string|null $month = null, int|string|null $year = null,
+        ?string $note = null): bool
     {
         // Insert or update the budget for the given category and month
         $date = Month::first($month, $year);
-        $sql = "INSERT INTO budget (date, amount, category) VALUES (?, ?, ?)
-            ON DUPLICATE KEY UPDATE amount=?";
+        if ($note !== null && !self::noteReady()) {
+            if (trim($note) !== '') {
+                throw new ApiError("The note of the budgets needs the pending database migrations", 409, 'budget_note_migration');
+            }
+            $note = null;
+        }
+        if ($note === null) {
+            Db::execute("INSERT INTO budget (date, amount, category) VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE amount=?", "sdid", $date, $amount, $category, $amount);
+            return true;
+        }
 
-        Db::execute($sql, "sdid", $date, $amount, $category, $amount);
+        $note = self::note($note);
+        Db::execute("INSERT INTO budget (date, amount, category, note) VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE amount=?, note=?", "sdisds", $date, $amount, $category, $note, $amount, $note);
 
         return true;
     }
 
     /**
+     * A note of a budget as stored: trimmed, null when empty.
+     *
+     * @param string $note The note sent
+     * @return string|null The note, null for none
+     * @throws Error If it is longer than NOTE_LENGTH characters (400)
+     */
+    private static function note(string $note): ?string
+    {
+        $note = trim($note);
+        if (mb_strlen($note) > self::NOTE_LENGTH) {
+            throw new ApiError("The note of a budget has " . self::NOTE_LENGTH . " characters at most", 400, 'budget_note_length',
+                ['max' => self::NOTE_LENGTH]);
+        }
+        return $note === '' ? null : $note;
+    }
+
+    /**
      * Copy the budgets of the previous month to the given month.
      *
-     * Rows at 0 are copied as is (they mean "sum of the sub-categories").
+     * Rows at 0 are copied as is (they mean "sum of the sub-categories"), with their note.
      * Without overwrite, only the categories without a budget in the target
      * month are copied; with overwrite, every budget of the source month
      * replaces the one of the target month.
@@ -174,7 +297,7 @@ final class Budget {
         $source = date('Y-m-d', Month::timestamp("$target -1 month"));
         [$from, $to] = Month::range(date('n', Month::timestamp($source)), date('Y', Month::timestamp($source)));
 
-        $rows = Db::select("SELECT category, amount FROM budget WHERE date >= ? AND date < ?",
+        $rows = Db::select("SELECT category, amount, " . self::noteColumn('budget') . " FROM budget WHERE date >= ? AND date < ?",
             "ss", $from, $to)->fetch_all(MYSQLI_ASSOC);
 
         $key = sprintf('%04d-%02d', $targetYear, $targetMonth);
@@ -188,19 +311,75 @@ final class Budget {
         foreach ($rows as $row) {
             $amount = (float)$row['amount'];
             $category = (int)$row['category'];
+            $note = $row['note'];
+            if (!self::noteReady()) {
+                // Before the migration 2026-11-06_budget_note: the amounts only
+                if ($overwrite) {
+                    Db::execute("INSERT INTO budget (date, amount, category) VALUES (?, ?, ?)
+                        ON DUPLICATE KEY UPDATE amount=?", "sdid", $target, $amount, $category, $amount);
+                    $copied++;
+                } else {
+                    $copied += Db::execute("INSERT IGNORE INTO budget (date, amount, category) VALUES (?, ?, ?)",
+                        "sdi", $target, $amount, $category)->affected_rows > 0 ? 1 : 0;
+                }
+                continue;
+            }
             if ($overwrite) {
-                Db::execute("INSERT INTO budget (date, amount, category) VALUES (?, ?, ?)
-                    ON DUPLICATE KEY UPDATE amount=?", "sdid", $target, $amount, $category, $amount);
+                Db::execute("INSERT INTO budget (date, amount, category, note) VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE amount=?, note=?", "sdisds", $target, $amount, $category, $note, $amount, $note);
                 $copied++;
             } else {
-                $stmt = Db::execute("INSERT IGNORE INTO budget (date, amount, category) VALUES (?, ?, ?)",
-                    "sdi", $target, $amount, $category);
+                $stmt = Db::execute("INSERT IGNORE INTO budget (date, amount, category, note) VALUES (?, ?, ?, ?)",
+                    "sdis", $target, $amount, $category, $note);
                 $copied += $stmt->affected_rows > 0 ? 1 : 0;
             }
         }
 
         return ['month' => $key, 'source' => $sourceKey, 'copied' => $copied, 'overwrite' => $overwrite];
-    }   
+    }
+
+    /**
+     * Tell whether the budgets of the previous month can be copied to the given month:
+     * the month has no budget defined yet and the previous month has some. A budget at 0
+     * ("sum of the sub-categories") does not count as defined. Read only.
+     *
+     * @param int|string|null $month The target month (current month by default)
+     * @param int|string|null $year  The target year (current year by default)
+     * @return array{month: string, source: string, defined: bool, source_defined: bool, copyable: bool}
+     *               month and source (previous month, Y-m), defined (the month has a budget),
+     *               source_defined (the previous month has one) and copyable (the copy is offered)
+     */
+    #[ApiRoute('/budget/copy', method: 'GET')]
+    public static function copyStatus(int|string|null $month = null, int|string|null $year = null): array
+    {
+        [$targetMonth, $targetYear] = Month::resolve($month, $year);
+        $target = sprintf('%04d-%02d-01', $targetYear, $targetMonth);
+        $source = date('Y-m-01', Month::timestamp("$target -1 month"));
+
+        $defined = self::hasBudget($target);
+        $sourceDefined = self::hasBudget($source);
+
+        return [
+            'month' => substr($target, 0, 7),
+            'source' => substr($source, 0, 7),
+            'defined' => $defined,
+            'source_defined' => $sourceDefined,
+            'copyable' => !$defined && $sourceDefined,
+        ];
+    }
+
+    /**
+     * Tell whether a month has at least one budget defined (an amount other than 0).
+     *
+     * @param string $first First day of the month (Y-m-d)
+     * @return bool True if a budget of the month has an amount
+     */
+    private static function hasBudget(string $first): bool
+    {
+        $to = date('Y-m-d', Month::timestamp("$first +1 month"));
+        $sql = "SELECT 1 FROM budget WHERE date >= ? AND date < ? AND amount <> 0 LIMIT 1";
+        return Db::select($sql, "ss", $first, $to)->num_rows > 0;
+    }
 
 
     /**
@@ -216,24 +395,19 @@ final class Budget {
      *              ("Epargne" by default, setting savings_category) and its
      *              sub-categories, positive when saved
      *
-     * @param int|string|null $months The number of months (1 to 60)
+     * @param int|string|null $months The number of months (1 to 240)
      * @param int|string|null $offset Number of months between the current month and the last month
-     *                                of the period (0 = up to the current month, used for comparisons)
+     *                                of the period (0 to 240; 0 = up to the current month, used for comparisons)
      * @return list<array<string, mixed>> The list of months
      */
     #[ApiRoute('/budget/trends', method: 'GET')]
     public static function getTrends(int|string|null $months = 24, int|string|null $offset = 0): array
     {
-        $months = max(1, min(60, (int)$months));
-        $offset = max(0, min(120, (int)$offset));
-        $last = date('Y-m-01', Month::timestamp(date('Y-m-01') . " -$offset months"));
-        $from = date('Y-m-01', Month::timestamp("$last -" . ($months - 1) . ' months'));
-        $to = date('Y-m-01', Month::timestamp("$last +1 month"));
+        [$list, $from, $to] = self::period($months, $offset);
 
         // Empty months are kept with zero values
         $trends = [];
-        for ($i = 0; $i < $months; $i++) {
-            $month = date('Y-m', Month::timestamp("$from +$i months"));
+        foreach ($list as $month) {
             $trends[$month] = ['month' => $month, 'debit' => 0, 'credit' => 0, 'offBudget' => 0, 'planned' => 0, 'savings' => 0];
         }
 
@@ -243,6 +417,30 @@ final class Budget {
         }
 
         return array_values($trends);
+    }
+
+    /**
+     * Months of a trends period, oldest first: the number of months is kept between 1
+     * and Budget::MAX_TREND_MONTHS, the offset between 0 and Budget::MAX_TREND_MONTHS.
+     *
+     * @param int|string|null $months The number of months
+     * @param int|string|null $offset Number of months between the current month and the last month of the period
+     * @return array{0: list<string>, 1: string, 2: string} [months (Y-m), first day of the period,
+     *         first day after the period (Y-m-d)]
+     */
+    public static function period(int|string|null $months, int|string|null $offset): array
+    {
+        $months = max(1, min(self::MAX_TREND_MONTHS, (int)$months));
+        $offset = max(0, min(self::MAX_TREND_MONTHS, (int)$offset));
+        $last = date('Y-m-01', Month::timestamp(date('Y-m-01') . " -$offset months"));
+        $from = date('Y-m-01', Month::timestamp("$last -" . ($months - 1) . ' months'));
+        $to = date('Y-m-01', Month::timestamp("$last +1 month"));
+
+        $list = [];
+        for ($i = 0; $i < $months; $i++) {
+            $list[] = date('Y-m', Month::timestamp("$from +$i months"));
+        }
+        return [$list, $from, $to];
     }
 
     /**
@@ -527,7 +725,7 @@ final class Budget {
         $insights = Insight::enabled();
         foreach ($insights as &$insight) {
             $insight["amount"] = Insight::amount($insight["sql"], $month, $year) ?? 0;
-            unset($insight["sql"], $insight["enabled"]);
+            unset($insight["sql"], $insight["enabled"], $insight["position"]);
         }
 
         return $insights;

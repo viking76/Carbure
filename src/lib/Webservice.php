@@ -168,6 +168,9 @@ final class Webservice {
             throw new Error("Route not found: $httpMethod $requestPath", 404);
         }
 
+        // A route polled by the healthchecks (quiet): its successful calls at the DEBUG level
+        Logger::setQuiet($route['apiRoute']->quiet);
+
         // Set appropriate headers based on route type
         self::setResponseHeaders($route['apiRoute']->stream);
 
@@ -303,8 +306,9 @@ final class Webservice {
         // Logged with the short class name (Bank.get), as before the namespaces
         $name = substr((string)strrchr('\\' . $resource, '\\'), 1);
         // Only the names of the parameters: their values are household data (labels, amounts,
-        // email...), written in full at the debug level only
-        Logger::info("Calling : $name.$method", $data ? ['params' => array_keys($data)] : null);
+        // email...), written in full at the debug level only; at the debug level only too for
+        // a quiet route (GET /health)
+        Logger::routine("Calling : $name.$method", $data ? ['params' => array_keys($data)] : null);
 
         // Merge GET parameters with payload data
         $data = array_merge($_GET, $data);

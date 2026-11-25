@@ -1200,7 +1200,8 @@ final class Bank {
         if (empty($transactions)) {
             return 0;
         }
-        $rules = Db::select("SELECT keyword FROM bank_transaction_category_keyword WHERE notify = 1", "")->fetch_all(MYSQLI_ASSOC);
+        // A rule with an amount only matches the transactions of this amount
+        $rules = array_values(array_filter(Category::loadKeywords(), fn(array $rule): bool => (int)$rule['notify'] === 1));
         if (!$rules) {
             return 0;
         }
@@ -1211,7 +1212,7 @@ final class Bank {
         foreach ($transactions as $transaction) {
             $label = strtoupper((string)$transaction['label']);
             foreach ($rules as $rule) {
-                if (strpos($label, $rule['keyword']) === false) {
+                if (!Category::matches($rule, $label, $transaction['amount'] ?? null)) {
                     continue;
                 }
                 $sent += self::notifyRuleMatch($users, $transaction, $rule['keyword']);

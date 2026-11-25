@@ -8,6 +8,15 @@
  */
 
 /**
+ * Amount of a rule as shown in its field: 2 decimals, '' for any amount
+ * @param {string|number|null|undefined} amount - The amount of the rule (null: any amount)
+ * @returns {string} "10.00" or ''
+ */
+export function ruleAmountText(amount) {
+    return amount === null || amount === undefined || amount === '' || Number.isNaN(Number(amount)) ? '' : Number(amount).toFixed(2);
+}
+
+/**
  * Creates a rules module mixin for Vue components
  * @param {Function} getApiService - Function that returns the API service instance
  * @returns {Object} Vue mixin with rules data and methods
@@ -20,8 +29,8 @@ export function createRulesModule(getApiService) {
                 ruleCategories: [],
                 loadingRules: false,
                 ruleFilter: '',
-                // Rule of the modal: {id (null for a new one), keyword, category, notify}
-                newRule: { id: null, keyword: '', category: '', notify: false },
+                // Rule of the modal: {id (null for a new one), keyword, category, notify, amount ('' for any amount)}
+                newRule: { id: null, keyword: '', category: '', notify: false, amount: '' },
                 // Transactions matching the rule of the modal: {matching, categorized}
                 ruleCount: null,
                 showRuleModal: false,
@@ -76,6 +85,17 @@ export function createRulesModule(getApiService) {
 
         methods: {
             /**
+             * Text of a rule for the screen readers: its keyword, then its amount if it has one
+             * @param {Object} rule - {keyword, amount}
+             * @returns {string} "PAYPAL" or "PAYPAL · 10,00 €"
+             */
+            ruleLabel(rule) {
+                return rule.amount === null || rule.amount === undefined
+                    ? rule.keyword
+                    : `${rule.keyword} · ${this.formatAmount(rule.amount)} ${this.currencySymbol}`;
+            },
+
+            /**
              * Loads the rules and the categories
              * @returns {Promise<void>}
              */
@@ -103,14 +123,15 @@ export function createRulesModule(getApiService) {
 
             /**
              * Opens the rule modal, optionally pre-filled
-             * @param {Object|null} rule - {keyword, category}
+             * @param {Object|null} rule - {keyword, category, notify, amount}
              */
             openRuleModal(rule = null) {
                 this.newRule = {
                     id: rule?.id ? Number(rule.id) : null,
                     keyword: rule?.keyword || '',
                     category: rule?.category !== undefined && rule?.category !== '' ? Number(rule.category) : '',
-                    notify: !!Number(rule?.notify || 0)
+                    notify: !!Number(rule?.notify || 0),
+                    amount: ruleAmountText(rule?.amount)
                 };
                 this.ruleCount = null;
                 if (this.newRule.id) {
@@ -141,8 +162,8 @@ export function createRulesModule(getApiService) {
                 try {
                     // The rule applies at once to the history (its uncategorized transactions only if set so)
                     const saved = this.newRule.id
-                        ? await getApiService().updateRule(this.newRule.id, this.newRule.keyword, this.newRule.category, this.newRule.notify)
-                        : await getApiService().createRule(this.newRule.keyword, this.newRule.category, this.newRule.notify);
+                        ? await getApiService().updateRule(this.newRule.id, this.newRule.keyword, this.newRule.category, this.newRule.notify, this.newRule.amount)
+                        : await getApiService().createRule(this.newRule.keyword, this.newRule.category, this.newRule.notify, this.newRule.amount);
                     this.showRuleModal = false;
                     this.showToast(this.t('ruleSavedApplied', { count: Number(saved && saved.applied) || 0 }));
                     this.rules = await getApiService().fetchRules();

@@ -73,6 +73,15 @@ class ChangesTest extends DatabaseTestCase
         $this->assertEqualsCanonicalizing(['budgets', 'categories', 'transactions'], $this->moved($before));
     }
 
+    public function testTheChartsOfTheTrendsBumpTheSettings()
+    {
+        $this->loginAs(self::ADMIN);
+        $before = $this->versions();
+
+        $this->callRoute('PUT', '/budget/trends/charts', ['charts' => [['type' => 'category', 'id' => 3]]]);
+        $this->assertSame(['settings'], $this->moved($before));
+    }
+
     public function testEachKindIsBumped()
     {
         $this->loginAs(self::ADMIN);

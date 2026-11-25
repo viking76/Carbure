@@ -24,7 +24,7 @@ relu à chaque requête), sauf le conteneur Docker pour `SYNC_INTERVAL`.
 
     Les clés marquées ✏️ dans les tableaux ci-dessous s'y modifient directement : `log_level`,
     `log_retention_days`, `savings_category`, `public_url`, `currency`, `next_month_day`, `update_check`, `woob_transactions`,
-    `woob_logging`, `woob_debug`, `woob_auto_update`, `woob_2fa_wait`, `woob_2fa_retries`,
+    `woob_logging`, `woob_debug`, `woob_auto_update`, `woob_relabel`, `woob_2fa_wait`, `woob_2fa_retries`,
     `push_api_key` et les réglages
     SMTP (`smtp_host`, `smtp_port`, `smtp_encryption`, `smtp_auth`, `smtp_username`,
     `smtp_password`, `smtp_from`, `smtp_from_name`). Chaque valeur est
@@ -97,6 +97,7 @@ transaction importée.
 | `woob_logging` ✏️ | Niveau de log de woob, sur sa sortie d'erreur (jamais dans un fichier) : `debug` (`--debug`), `info` (`--verbose`), `warning` (par défaut), `error`/`critical` (`--quiet`) |
 | `woob_debug` ✏️ | `true` pour lancer woob en `--debug` (prioritaire sur `woob_logging`), journaliser sa sortie complète et l'afficher dans le journal de synchronisation du portail (administrateurs) |
 | `woob_auto_update` ✏️ | `true` pour laisser woob mettre à jour ses modules (`--auto-update`, une fois le dépôt de woob approuvé, voir [Sécurité](securite.md)) |
+| `woob_relabel` ✏️ | `false` par défaut. `true` : quand un module woob change le libellé de transactions déjà synchronisées (une correction du module), la synchronisation donne le nouveau libellé à la transaction enregistrée au lieu de l'enregistrer une seconde fois. Une transaction reçue au libellé inconnu remplace la seule transaction du même compte, de même date réelle et de même montant que la banque n'envoie plus ; catégorie, tags et pointage sont gardés. S'il y en a plusieurs (deux paiements du même montant le même jour), rien n'est deviné. Risque : deux vraies transactions distinctes du même montant le même jour, dont une seule est encore envoyée, seraient confondues |
 | `woob_2fa_wait` ✏️ | Synchronisation planifiée : secondes d'attente (0 à 300, 15 par défaut) avant de resynchroniser un compte dont la banque demande une validation dans son application |
 | `woob_2fa_retries` ✏️ | Synchronisation planifiée : nombre de nouvelles tentatives après cette demande (0 à 5, 1 par défaut ; 0 pour ne pas réessayer) |
 

@@ -107,6 +107,19 @@ class BackupTest extends DatabaseTestCase
         $this->assertSame(0, $this->rowCount('budget'));
     }
 
+    public function testRulesKeepTheirAmount()
+    {
+        Db::query("INSERT INTO bank_transaction_category_keyword (keyword, category, amount) VALUES ('PAYPAL', 1, 10.00), ('PAYPAL', 3, NULL)");
+        $rules = $this->export('rules')['datasets']['rules'];
+        $this->assertSame([null, null, null, 10.0, null], array_column($rules, 'amount'));
+
+        Backup::import(['rules' => $rules]);
+        $this->assertSame(['10.00'], array_column(Db::select("SELECT amount FROM bank_transaction_category_keyword WHERE amount IS NOT NULL", "")->fetch_all(MYSQLI_ASSOC), 'amount'));
+        // An older backup, without amount: any amount
+        Backup::import(['rules' => [['id' => 9, 'keyword' => 'BOULANGERIE', 'category' => 1, 'notify' => false]]]);
+        $this->assertNull(Db::queryOne("SELECT amount FROM bank_transaction_category_keyword WHERE id = 9", "")['amount']);
+    }
+
     public function testUsersAreMatchedByUsername()
     {
         $transaction = $this->export('transactions')['datasets']['transactions'][0];
@@ -264,8 +277,8 @@ class BackupTest extends DatabaseTestCase
     {
         $insight = ['id' => 7, 'name' => ' Courses ', 'color' => 'blue', 'icon' => '', 'sql' => ' SELECT SUM(amount) AS amount FROM bank_transaction; '];
         Backup::import(['insights' => [$insight]]);
-        $this->assertSame(['id' => 7, 'name' => 'Courses', 'color' => 'blue', 'icon' => null, 'sql' => 'SELECT SUM(amount) AS amount FROM bank_transaction', 'enabled' => true],
-            $this->export('insights')['datasets']['insights'][0]);
+        $this->assertSame(['id' => 7, 'name' => 'Courses', 'color' => 'blue', 'icon' => null, 'sql' => 'SELECT SUM(amount) AS amount FROM bank_transaction', 'enabled' => true,
+            'position' => 0], $this->export('insights')['datasets']['insights'][0]);
 
         // A disabled insight stays disabled; one of an older backup (no enabled) is enabled
         Backup::import(['insights' => [['enabled' => false] + $insight, ['id' => 8] + $insight]]);

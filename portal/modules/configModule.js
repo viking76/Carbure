@@ -372,6 +372,17 @@ export function createConfigModule(getApiService) {
             },
 
             /**
+             * Warning of a setting with a risk: what it does and when it can go wrong ('' if none)
+             * @param {string} key - Setting
+             * @returns {string}
+             */
+            configWarning(key) {
+                const name = 'configWarning_' + key;
+                const warning = this.t(name);
+                return warning === name ? '' : warning;
+            },
+
+            /**
              * Sends a test email with the saved SMTP settings, to the address typed or
              * to the one of the administrator
              * @returns {Promise<void>}

@@ -42,7 +42,23 @@ test('adds a sub-category with its color and icon', async ({ adminPage: page, ap
     expect(await apiCategories(api)).toMatchObject({ 'Électricité': { parent_category: 4, type: 'DEBIT', color: 'orange', icon: iconName } });
 });
 
-test('modifies a category', async ({ adminPage: page, api }) => {
+test('adds a sub-category from the row of its parent, with the type of the parent', async ({ adminPage: page, api }) => {
+    await openTab(page, tr('tabCategories'));
+    // Only the top-level categories offer it: not their sub-categories
+    await expect(category(page, 'Livret A').getByRole('button', { name: tr('addSubcategory', { name: 'Livret A' }) })).toHaveCount(0);
+    await category(page, 'Épargne').getByRole('button', { name: tr('addSubcategory', { name: 'Épargne' }) }).click();
+
+    const modal = page.getByRole('dialog', { name: tr('addCategory') });
+    await expect(modal.getByLabel(tr('categoryParent'))).toHaveValue('6');
+    await modal.getByLabel(new RegExp(tr('categoryName'))).fill('Livret jeune');
+    await modal.getByRole('button', { name: tr('save') }).click();
+
+    await expect(page.locator('.toast')).toHaveText(tr('categoryAdded'));
+    await expect(category(page, 'Livret jeune')).toBeVisible();
+    expect(await apiCategories(api)).toMatchObject({ 'Livret jeune': { parent_category: 6, type: 'HORS-BUDGET' } });
+});
+
+test('modifies a category',async ({ adminPage: page, api }) => {
     await openTab(page, tr('tabCategories'));
     await category(page, 'Restaurant').getByRole('button', { name: tr('editCategory') }).click();
 

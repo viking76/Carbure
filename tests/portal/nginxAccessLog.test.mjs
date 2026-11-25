@@ -31,7 +31,7 @@ function loggedRequest(request) {
 
 test('the access log of nginx uses the masked request line', () => {
     assert.match(conf, /^log_format carbure '\$remote_addr - \$remote_user \[\$time_local\] "\$carbure_request" '/m);
-    assert.match(conf, /^ {4}access_log \/var\/log\/nginx\/access\.log carbure;$/m);
+    assert.match(conf, /^ {4}access_log \/var\/log\/nginx\/access\.log carbure if=\$carbure_loggable;$/m);
     // Never the raw request line in the format
     assert.doesNotMatch(conf.match(/^log_format carbure[^;]+;/m)[0], /\$request\b/);
 });
@@ -51,4 +51,28 @@ test('the other requests are logged as they are', () => {
         'GET /api/transaction?mytoken=1 HTTP/1.1', 'GET /portal/ HTTP/2.0']) {
         assert.equal(loggedRequest(request), request);
     }
+});
+
+/**
+ * Whether nginx writes a request in its access log (map "$uri:$status" $carbure_loggable)
+ * @param {string} uri - Normalized path of the request
+ * @param {number} status - HTTP status of the response
+ * @returns {boolean} True if the request is written
+ */
+function logged(uri, status) {
+    const map = conf.match(/^map "\$uri:\$status" \$carbure_loggable \{\n {4}"~([^"]+)" 0;\n {4}default 1;\n\}/m);
+    assert.ok(map, 'map of the requests written in the access log');
+    return !new RegExp(map[1]).test(`${uri}:${status}`);
+}
+
+test('the successful health checks are not written in the access log of nginx', () => {
+    assert.equal(logged('/api/health', 200), false);
+    assert.equal(logged('/api/health', 304), false);
+    // Its errors are written, like every other request
+    assert.equal(logged('/api/health', 500), true);
+    assert.equal(logged('/api/health', 404), true);
+    assert.equal(logged('/api/health/x', 200), true);
+    assert.equal(logged('/api/healthz', 200), true);
+    assert.equal(logged('/api/transaction', 200), true);
+    assert.equal(logged('/portal/', 200), true);
 });

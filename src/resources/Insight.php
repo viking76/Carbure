@@ -82,7 +82,66 @@ final class Insight {
     {
         $enabled = self::ready() ? ", enabled" : "";
         return array_map(fn(array $insight): array => self::withEnabled($insight),
-            Db::select("SELECT id, name, color, icon, `sql`$enabled FROM budget_insight ORDER BY id", "")->fetch_all(MYSQLI_ASSOC));
+            Db::select("SELECT id, name, color, icon, `sql`$enabled FROM budget_insight ORDER BY " . self::order(), "")->fetch_all(MYSQLI_ASSOC));
+    }
+
+    /**
+     * Whether budget_insight.position exists (migration 2026-11-07_insight_position), read once
+     */
+    private static ?bool $positionReady = null;
+
+    /**
+     * Whether the insights can be ordered: the migration 2026-11-07_insight_position is
+     * applied (before it, they are sorted by id). Read once per request.
+     *
+     * @return bool
+     */
+    public static function positionReady(): bool
+    {
+        return self::$positionReady ??= Db::queryOne("SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'budget_insight' AND COLUMN_NAME = 'position'", "") !== null;
+    }
+
+    /**
+     * ORDER BY of the insights: their position chosen in the Insights tab, then their id.
+     *
+     * @return string
+     */
+    private static function order(): string
+    {
+        return self::positionReady() ? "position, id" : "id";
+    }
+
+    /**
+     * Order of the insights shown in the Insights tab (drag and drop of the cards, #467),
+     * for the whole household as their display. The insights listed get the positions 1,
+     * 2, 3... in this order; the others (hidden, or created meanwhile) go after them.
+     *
+     * @param list<int|string> $ids The insights, in their new order
+     * @return list<int> The ids of the shown insights, in their order
+     * @throws Error If the list is invalid (400), an insight is unknown (404), or the
+     *               migration is not applied yet (409)
+     */
+    #[ApiRoute('/insight/order', method: 'PUT', changes: ['insights'])]
+    public static function setOrder(array $ids): array
+    {
+        $order = array_flip(self::orderIds($ids));
+        if (!self::positionReady()) {
+            throw new ApiError("The database must be updated first", 409, 'insight_migration_pending');
+        }
+        $known = array_map('intval', array_column(Db::select("SELECT id FROM budget_insight", "")->fetch_all(MYSQLI_ASSOC), 'id'));
+        if (array_diff(array_keys($order), $known)) {
+            throw new ApiError("Insight not found", 404, 'insight_not_found');
+        }
+
+        // The others after the ones listed, in their current order
+        $others = array_values(array_diff(
+            array_map('intval', array_column(Db::select("SELECT id FROM budget_insight ORDER BY position, id", "")->fetch_all(MYSQLI_ASSOC), 'id')),
+            array_keys($order)));
+        foreach (array_merge(array_keys($order), $others) as $index => $id) {
+            Db::execute("UPDATE budget_insight SET position = ? WHERE id = ?", "ii", $index + 1, $id);
+        }
+        return array_map('intval', array_column(self::enabled(), 'id'));
     }
 
     /**
@@ -106,7 +165,7 @@ final class Insight {
     public static function enabled(): array
     {
         $where = self::ready() ? " WHERE enabled = 1" : "";
-        return Db::select("SELECT * FROM budget_insight$where ORDER BY id", "")->fetch_all(MYSQLI_ASSOC);
+        return Db::select("SELECT * FROM budget_insight$where ORDER BY " . self::order(), "")->fetch_all(MYSQLI_ASSOC);
     }
 
     /**
@@ -120,7 +179,7 @@ final class Insight {
         if (!self::ready()) {
             return [];
         }
-        $rows = Db::select("SELECT id, name, color, icon FROM budget_insight WHERE enabled = 0 ORDER BY id", "")->fetch_all(MYSQLI_ASSOC);
+        $rows = Db::select("SELECT id, name, color, icon FROM budget_insight WHERE enabled = 0 ORDER BY " . self::order(), "")->fetch_all(MYSQLI_ASSOC);
         return array_map(fn(array $row): array => ['id' => (int)$row['id'], 'name' => (string)$row['name'],
             'color' => (string)$row['color'], 'icon' => $row['icon'] === null ? null : (string)$row['icon']], $rows);
     }
@@ -156,6 +215,23 @@ final class Insight {
     }
 
     /**
+     * The ids of an order of the insights: positive integers (also as digits), each once.
+     *
+     * @param array<mixed> $ids The ids sent
+     * @return list<int> The ids
+     * @throws Error If one is not a positive integer or is repeated (400)
+     */
+    private static function orderIds(array $ids): array
+    {
+        $valid = array_filter($ids, fn(mixed $id): bool => (is_int($id) || (is_string($id) && ctype_digit($id))) && (int)$id > 0);
+        $order = array_values(array_unique(array_map('intval', $valid)));
+        if (count($order) !== count($ids) || count($order) > 1000) {
+            throw new ApiError("Invalid order: a list of insight ids is expected", 400, 'insight_order_invalid');
+        }
+        return $order;
+    }
+
+    /**
      * An insight with its enabled flag as a boolean (true before the migration
      * 2026-11-01_insight_enabled).
      *
@@ -186,6 +262,11 @@ final class Insight {
         $amount = self::test($sql);
 
         $stmt = Db::execute("INSERT INTO budget_insight (name, color, icon, `sql`) VALUES (?, ?, ?, ?)", "ssss", $name, $color, $icon, $sql);
+        // After the cards already ordered (#467)
+        if (self::positionReady()) {
+            Db::execute("UPDATE budget_insight SET position = (SELECT p FROM (SELECT IFNULL(MAX(position), 0) + 1 AS p FROM budget_insight) AS last)
+                WHERE id = ?", "i", $stmt->insert_id);
+        }
 
         return ['id' => $stmt->insert_id, 'name' => $name, 'color' => $color, 'icon' => $icon, 'sql' => $sql, 'amount' => $amount];
     }

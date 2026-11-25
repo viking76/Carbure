@@ -169,7 +169,7 @@ test('in forced colors, the controls keep visible borders and focus', async ({ a
     const bordered = [
         page.locator('.tab-button.active'),
         page.locator('.tab-button:not(.active)').first(),
-        page.getByRole('button', { name: tr('connectBankTitle') }),
+        page.getByRole('button', { name: tr('woobUpdateButton') }),
         page.getByRole('button', { name: tr('syncAllAccounts') }),
         page.locator('.header-user > button').first(),
     ];

@@ -28,6 +28,7 @@ export function createConfirmModule() {
              * @param {Object} options - What is asked
              * @param {string} options.title - Title of the modal
              * @param {string} options.message - Question
+             * @param {string} [options.warning] - Consequence of the action, shown in a warning callout
              * @param {string} options.confirmLabel - Label of the confirm button
              * @param {string} [options.busyLabel] - Label of the confirm button while the action runs
              * @param {string} [options.icon] - Material icon of the title and the confirm button
@@ -36,11 +37,11 @@ export function createConfirmModule() {
              *                                      modal staying open (loader) until it ends
              * @returns {Promise<boolean>} True if confirmed (and the action succeeded), false if cancelled
              */
-            askConfirm({ title, message, confirmLabel, busyLabel = null, icon = 'help', danger = false, action = null }) {
+            askConfirm({ title, message, warning = null, confirmLabel, busyLabel = null, icon = 'help', danger = false, action = null }) {
                 return new Promise(resolve => {
                     // The focus comes back to the button that asked, once closed
                     const trigger = typeof document !== 'undefined' ? document.activeElement : null;
-                    this.confirmDialog = { title, message, confirmLabel, busyLabel, icon, danger, busy: false, error: null, action, resolve, trigger };
+                    this.confirmDialog = { title, message, warning, confirmLabel, busyLabel, icon, danger, busy: false, error: null, action, resolve, trigger };
                     // The safest choice has the focus: cancel
                     if (this.$nextTick) {
                         this.$nextTick(() => document.getElementById('confirm-dialog-cancel')?.focus());

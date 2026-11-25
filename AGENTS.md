@@ -18,14 +18,15 @@ built by the GitHub release workflow; committing/pushing is not deploying.
 |---|---|
 | `src/api.php` | HTTP entry (`/api/*`); without `conf/<env>.ini` serves only `/api/setup` |
 | `src/autoload.php` | Registers `ClassLoader` (PSR-4, on demand, no Composer), then `Config::load(getenv('APP_ENV') ?: 'prod')` |
-| `src/lib/` | Namespace `Carbure\Lib`: `ClassLoader`, `Config`, `Db` (mysqli), `Logger`, `Jwt`, `Webservice` (+ security headers), `ApiError` (error with a stable code), `ApiResolver`, `ApiRoute`, `Woob`, `PushRelay` (client of Carbure Push), `Mailer` (SMTP), `Messages` (fr/en texts of the notifications), `Setup`/`Installer`, `Migrator`, `Setting`, `SqlTables` (tables read by an insight query) |
+| `src/lib/` | Namespace `Carbure\Lib`: `ClassLoader`, `Config`, `Db` (mysqli), `Logger`, `Jwt`, `Webservice` (+ security headers), `ApiError` (error with a stable code), `ApiResolver`, `ApiRoute`, `Woob`, `PushRelay` (client of Carbure Push), `Mailer` (SMTP), `Messages` (fr/en texts of the notifications), `Setup`/`Installer`, `Migrator`, `Setting`, `SqlTables` (tables read by an insight query), `Network` (request from the local network) |
 | `src/lib/import/` | Namespace `Carbure\Lib\Import`: statement import behind `BankFile::parse()`: `OfxReader`, `QifReader`, `CamtReader`, `CsvReader` (+ `CsvGeneric` fallback), `BankProfiles` (schema) |
 | `src/lib/import/banks/` | One CSV profile per bank (`<id>.php` returns an array, no class: loaded by path by `BankProfiles`); fixtures `tests/fixtures/import/`, snapshots `…/expected/` |
-| `src/resources/` | Namespace `Carbure\Resources`: `User`, `Bank`, `Transaction`, `Budget`, `Category`, `Insight`, `Device`, `Notification`, `ApiToken`, `Mcp`, `OAuth`, `System` |
+| `src/resources/` | Namespace `Carbure\Resources`: `User`, `Bank`, `Transaction`, `Budget`, `Category`, `Insight`, `Device`, `Notification`, `ApiToken`, `Mcp`, `OAuth`, `System`, `Backup`, `Purge` |
 | `portal/` | Mixins in `modules/`, API calls in `services/apiService.js`, texts in `i18n/<locale>.json` (loader `i18n.js`) |
 | `swagger/` | OpenAPI via reflection + Swagger UI |
 | `sql/carbure.sql`, `sql/migrations/` | Full schema; dated migrations (`Migrator`, table `schema_migrations`) |
 | `tools/migrate.php` | CLI migrations (run by the Docker entrypoint) |
+| `tools/woob-trust.php` | CLI run by the Docker entrypoint while woob trusts no keyring: trusts the official woob repository when its keyring is the pinned one (`WoobRepository::OFFICIAL_KEYRINGS`), then installs the modules |
 | `tools/install.php` | CLI installation without the web wizard (`Carbure\Lib\InstallCommand`, same path as `Setup`): scripted installs, YunoHost package |
 | `docker/` | `Dockerfile`, `nginx.conf`, `docker-compose.yml`, `docker-compose.dev.yml`; `demo/` (`Dockerfile`, `entrypoint.sh`, `docker-compose.yml`, `run.sh`) = demo image (MariaDB + `seed.php --demo` inside) |
 | `data/` | Untracked instance data: `conf/prod.ini`, `logs/`, `cache/`, `woob/` |
@@ -77,7 +78,8 @@ git config core.hooksPath .githooks   # pre-commit lint, pre-push unit tests
   `#[ApiRoute('/path', method: 'GET', public: false, stream: false, raw: false, admin: false)]`.
   `public: true` = no JWT; `stream: true` = SSE (`Webservice::sendProgress()`/`sendHeartbeat()`);
   `admin: true` = administrators only, checked by `Webservice` before the method is called
-  (403 of `User::requireAdmin()`; invalid with `public: true`).
+  (403 of `User::requireAdmin()`; invalid with `public: true`); `quiet: true` = successful
+  calls logged at DEBUG, errors unchanged (only `GET /health`, pinned by `ApiResolverTest`).
 - Request params (JSON body + query string) are injected **by name** into method params:
   renaming one breaks the API; unknown param → 400.
 - **Errors**:

@@ -346,8 +346,9 @@ export function createMfaModule(getApiService) {
             async disableMfa() {
                 const code = this.mfaProfileCode.trim();
                 const disabled = await this.askConfirm({
-                    title: this.t('mfaDisable'),
+                    title: this.t('mfaDisableTitle'),
                     message: this.t('mfaDisableConfirm'),
+                    warning: this.t('mfaDisableWarning'),
                     confirmLabel: this.t('mfaDisable'),
                     icon: 'lock_open',
                     danger: true,
@@ -384,7 +385,8 @@ export function createMfaModule(getApiService) {
                 const reset = await this.askConfirm({
                     title: this.t('mfaReset'),
                     message: this.t('mfaResetConfirm', { username: user.username }),
-                    confirmLabel: this.t('mfaReset'),
+                    warning: this.t('mfaResetWarning'),
+                    confirmLabel: this.t('mfaResetButton'),
                     icon: 'phonelink_erase',
                     danger: true,
                     action: () => getApiService().resetUserMfa(user.id)

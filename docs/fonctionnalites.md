@@ -96,7 +96,8 @@ Pour chaque compte suivi :
    distinguées par leur rang.
 4. **Mois de rattachement** : un **virement reçu daté du 25 ou après** est rattaché au
    **1er du mois suivant** (un salaire versé le 28 compte pour le mois qu'il finance) ; la
-   date réelle reste visible dans le détail de la transaction. Le jour se règle dans
+   date réelle reste visible dans le détail de la transaction, où la date comptée peut aussi
+   être changée à la main (elle n'est plus modifiée par les synchronisations suivantes). Le jour se règle dans
    **Administration → Paramètres** (`next_month_day`, de 1 à 31, 0 pour ne jamais déplacer
    un virement, voir [Configuration](configuration.md#global)).
 5. **Notifications** : voir [Notifications](#notifications).
@@ -130,20 +131,41 @@ transactions du dernier mois restées sans catégorie.
   caractères, avec le total des transactions trouvées. La **recherche avancée** (bouton dans
   le champ) y ajoute des
   critères : dépenses ou revenus, montant minimal et maximal (sans signe), période,
-  catégories (avec leurs sous-catégories) et comptes. Chaque critère s'affiche sous la barre
-  d'outils et se retire d'un clic.
+  catégories (avec leurs sous-catégories) et comptes. Chaque critère s'affiche juste sous la barre
+  de recherche et se retire d'un clic.
 - **Détail** : montant, libellé complet, date et date réelle, type (carte, virement,
   prélèvement…), carte, banque d'origine, date d'import ; la catégorie et le pointage s'y
   modifient. **Transactions similaires** y lance la recherche sur le nom du commerçant
   (« PRLV SEPA EDF MDT/123 » cherche « EDF »).
+- **Commenter** une transaction (depuis son détail, champ **Commentaire**, 500 caractères) :
+  un texte libre visible par tout le foyer (« remboursé par Paul », « cadeau de Léa »), affiché
+  sous la date dans les listes et trouvé par la recherche. La synchronisation et l'import d'un
+  relevé ne le modifient pas.
+- **Changer la date comptée** d'une transaction, synchronisée ou non (depuis son détail,
+  champ **Date comptée**) : elle passe au mois précédent ou suivant pour les totaux, les
+  budgets et les tendances (une facture payée le 1er qui concerne le mois d'avant, un
+  salaire arrivé en avance). La date réelle de la banque ne change pas et reste affichée :
+  la synchronisation et l'import d'un relevé reconnaissent la transaction et gardent la
+  date choisie. Les parts d'une transaction répartie suivent sa date.
 - **Supprimer** une transaction (depuis son détail, ou plusieurs d'un coup : **Sélectionner**,
   cocher les transactions, **Supprimer** ; après confirmation) : elle disparaît
   pour tout le foyer et n'est plus réimportée, ni par la synchronisation ni par l'import
   d'un relevé.
+- **Changer la catégorie** de plusieurs transactions d'un coup : **Sélectionner**, cocher les
+  transactions, puis choisir la catégorie dans la liste, sur l'une des transactions cochées
+  (« Non catégorisé » compris) : toutes les transactions cochées la prennent, et la sélection
+  reste. Comme pour une seule, elles sont pointées et les règles ne changent plus cette
+  catégorie choisie à la main.
+- **Mode sélection** : **Tout sélectionner** coche toutes les transactions affichées (filtre et
+  recherche appliqués, 500 au plus), puis devient **Tout désélectionner** ; la croix à droite de
+  la barre ferme le mode sélection.
 - **Saisir une transaction à la main** (bouton **+**), par exemple une dépense en
-  espèces, sur un compte manuel : dépense ou revenu, montant, libellé, date, et catégorie
-  (sinon celle des règles). Tout utilisateur peut en saisir ; elle est comptée comme les
-  autres et reste modifiable (libellé, date, montant) depuis son détail.
+  espèces, sur n'importe quel compte : un compte manuel, ou un compte synchronisé (une
+  transaction que la banque n'envoie pas encore ; si elle l'envoie ensuite, supprimer le
+  doublon) : dépense ou revenu, montant, libellé, date, catégorie (sinon celle des
+  règles) et commentaire. Tout utilisateur peut en saisir ; elle est comptée comme les autres, n'est jamais
+  écrasée par la synchronisation et reste modifiable (libellé, date, montant, commentaire) depuis son
+  détail.
 - **Répartir** une transaction sur plusieurs catégories (depuis son détail) : un ticket de
   supermarché en partie alimentation et en partie maison, un retrait d'espèces dépensé en
   courses et en transport. La première ligne est la transaction elle-même (sa catégorie, qui
@@ -220,10 +242,12 @@ Carbure **repère tout seul** les opérations qui reviennent chaque mois : salai
 abonnements, factures, remboursements…
 
 - **Badge « Mensuelle »** sur ces transactions dans la liste du mois.
-- Un **bandeau** sous la barre de recherche les résume : leur nombre, combien sont reçues et
-  attendues, et le **total du mois** (net : revenus moins dépenses, celles encore attendues
-  comptées à leur montant habituel).
-- Dans ce bandeau, un **interrupteur** n'affiche qu'elles, et liste celles **attendues ce mois-ci** qui ne sont
+- Une **barre** en haut de la liste, comme celle de la sélection, les résume. Repliée par
+  défaut, elle n'affiche que leur nombre ; son chevron la déplie (choix retenu par le
+  navigateur) : combien sont reçues et attendues, et le **total des transactions
+  récurrentes** (net : revenus moins dépenses, celles encore attendues comptées à leur
+  montant habituel).
+- Dans cette barre dépliée, un **interrupteur** n'affiche qu'elles, et liste celles **attendues ce mois-ci** qui ne sont
   pas encore arrivées, avec leur jour habituel et leur montant (« ≈ » s'il varie) ; pour un
   mois passé, celles qui ont **manqué** (« Absentes ce mois-ci »). Pratique pour vérifier que
   le salaire est tombé ou qu'un prélèvement n'a pas été oublié.
@@ -249,10 +273,16 @@ catégories : chaque transaction garde la sienne, les budgets et les tendances n
   fin facultative). Pendant sa période il est **actif** et proposé à la saisie ; après sa fin
   il est **archivé** : il n'est plus proposé, son bilan reste consultable.
 - **Étiqueter à la main** : depuis le détail d'une transaction, ou sur une **sélection** de la
-  liste (**Sélectionner**, cocher les transactions, choisir le tag, **Ajouter le tag**). Une
-  transaction peut porter plusieurs tags ; aucune règle automatique.
-- **Bilan d'un tag** : son coût net (remboursements déduits), la répartition par catégorie,
-  l'évolution jour par jour (avec le tableau des valeurs) et ses transactions.
+  liste (**Sélectionner**, cocher les transactions). On **saisit** le tag : les tags actifs
+  correspondants s'affichent, Entrée ou un clic le choisit ; un nom nouveau propose de
+  **créer** le tag (dès aujourd'hui, couleur par défaut). Dans le détail, le tag choisi
+  s'ajoute aussitôt ; sur une sélection, **Appliquer le tag** l'ajoute aux transactions
+  cochées. Une transaction peut porter
+  plusieurs tags ; aucune règle automatique.
+- **Bilan d'un tag** : son coût net (remboursements déduits), ses dépenses et
+  remboursements, son coût par jour et sa plus grosse dépense, la courbe du coût cumulé
+  jour par jour (au survol ou au clavier, avec le tableau des valeurs), la répartition par
+  catégorie (montant et part) et ses transactions.
 - **Recherche** `#voyage-italie` dans Transactions : les transactions du tag, tous mois
   confondus. Les parts d'une transaction répartie reprennent ses tags, puis s'étiquettent à part.
 - Les tables `tag` et `transaction_tag` sont lisibles par les [insights](insights.md).
@@ -288,12 +318,18 @@ la création, la modification et la suppression d'une catégorie aux autres util
 Une règle associe un **mot-clé** à une catégorie : toute transaction dont le libellé
 **contient** ce mot-clé reçoit la catégorie (« CARREFOUR » → Supermarché).
 
-- Le mot-clé est enregistré en majuscules, comme les libellés ; il est unique.
-- Quand plusieurs mots-clés se trouvent dans un même libellé, **la règle créée en premier**
-  l'emporte.
+- Le mot-clé est enregistré en majuscules, comme les libellés.
+- **Montant (facultatif)** : une règle avec un montant ne s'applique qu'aux transactions de
+  ce montant, **en valeur absolue et au centime près** (« 10 » reconnaît une dépense de
+  -10,00 € comme un revenu de 10,00 €). Deux règles peuvent ainsi partager un mot-clé :
+  « PAYPAL » → Shopping et « PAYPAL · 10,00 € » → Spotify. Un mot-clé n'a qu'une règle
+  sans montant, et qu'une règle par montant.
+- Quand plusieurs règles reconnaissent une transaction, **une règle avec un montant
+  l'emporte** sur les règles sans montant ; sinon, **la règle créée en premier** l'emporte.
 - **Créer ou modifier une règle l'applique tout de suite à tout l'historique**, transactions
   déjà catégorisées comprises ; la fenêtre de la règle indique combien de transactions
-  contiennent le mot-clé et combien sont déjà dans la catégorie.
+  elle reconnaît et combien sont déjà dans la catégorie. Une règle sans montant laisse les
+  transactions reconnues par une règle avec un montant.
 - **Une catégorie choisie à la main n'est jamais écrasée par une règle** : Carbure retient
   l'origine de la catégorie de chaque transaction (règle ou choix à la main depuis le
   portail, les applications mobiles, une répartition ou une saisie à la main). Les
@@ -335,7 +371,8 @@ Un budget est un **montant par catégorie et par mois**.
   utilisateurs.
 - **Recopie du mois précédent** : le bouton au-dessus de la synthèse reprend les budgets
   du mois précédent, en complétant seulement les catégories sans budget ou en écrasant
-  le mois affiché.
+  le mois affiché. Il n'est proposé que si le mois affiché n'a encore aucun budget et que
+  le mois précédent en a (un budget à 0, somme des sous-catégories, ne compte pas).
 
 ## Flux du mois
 
@@ -362,7 +399,8 @@ transactions non catégorisées restent visibles. Les mêmes flux existent en ta
 
 ![Tendances des dépenses, des revenus et de l'épargne sur plusieurs mois](assets/screenshot-trends.webp)
 
-Sur **3, 6 ou 12 mois** jusqu'au mois courant, éventuellement **comparés** à la période
+Sur **3, 6, 12, 24, 36 ou 60 mois** jusqu'au mois courant, ou sur une **période personnalisée**
+(du mois choisi au mois choisi, 20 ans au plus), éventuellement **comparés** à la période
 précédente ou à la même période l'an dernier :
 
 | Mesure | Calcul |
@@ -378,6 +416,19 @@ La catégorie d'épargne est « Épargne » (casse et accents ignorés), ou cell
 `savings_category`. Les chiffres clés (épargne cumulée et moyenne, taux d'épargne, dépenses
 moyennes face au budget planifié) indiquent l'écart avec la période comparée. Chaque graphique
 existe aussi en tableau.
+
+La carte **Par catégorie** compare toutes les catégories d'un type (dépenses, revenus ou
+hors budget) sur un même graphique, catégories principales (sous-catégories incluses) ou
+sous-catégories : chaque catégorie se masque ou se réaffiche d'un clic sur sa pastille
+(**Tout** / **Aucun**), l'échelle s'adaptant aux catégories affichées. Le graphique se
+dessine en **lignes**, en **barres** empilées ou en **aires** empilées ; ce choix, les
+catégories masquées, le type et le niveau sont retenus par le navigateur, et le type de
+graphique s'applique aussi aux graphiques personnalisés.
+
+Les administrateurs ajoutent des **graphiques personnalisés** (12 au plus, partagés par le
+foyer) : l'évolution mois par mois d'une catégorie (avec ses sous-catégories), d'une
+sous-catégorie ou d'un insight, avec sa moyenne sur la période et, pour une catégorie, son
+budget prévu.
 
 ## Insights
 
@@ -557,7 +608,7 @@ Détails : [Portail web](portail.md#accessibilite).
 ## Administration
 
 Les onglets **Règles** et **Comptes**, et le menu **Administration**
-(**Utilisateurs**, **Catégories**, **Logs**, **Paramètres**, **Synchro**, **Push mobile**, **Agent IA**, **Sauvegarde**, **API**) sont réservés aux administrateurs ; les autres
+(**Utilisateurs**, **Catégories**, **Logs**, **Paramètres**, **Synchro**, **Push mobile**, **Agent IA**, **Sauvegarde**, **Purge**, **API**) sont réservés aux administrateurs ; les autres
 utilisateurs ouvrent **Agent IA** depuis leur menu.
 
 - **Utilisateurs** : création, modification (dont le profil), suppression, dernière
@@ -579,6 +630,9 @@ utilisateurs ouvrent **Agent IA** depuis leur menu.
   ZIP (en choisissant ses fichiers) ou d'un seul fichier, qui **supprime et remplace** les
   données de chaque type importé, après confirmation, tout ou rien. Ni utilisateurs, ni mots
   de passe, ni jetons, ni connexions bancaires dans une sauvegarde.
+- **Purge** : pour repartir de zéro, suppression de toutes les lignes des données choisies
+  (celles qui en dépendent avec elles), après confirmation, depuis le réseau local
+  uniquement ; comptes bancaires, utilisateurs et réglages conservés.
 - **API** : la documentation de l'API (Swagger UI) dans le portail ; « Try it out » appelle
   l'API avec la session de l'administrateur.
 - **Mise à jour de la base** : quand une nouvelle version modifie la base, un bandeau le

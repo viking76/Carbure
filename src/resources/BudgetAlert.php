@@ -8,10 +8,10 @@
  *
  * - Checked after each synchronization and each import of a statement file, for the
  *   current month only: an import of past months does not alert on old budgets.
- * - The spending of a category is the one of the Budgets screen (Budget::get(): its
- *   transactions and those of its sub-categories, as an absolute value), for the
- *   expense categories (DEBIT) with a budget: the top-level categories and their
- *   sub-categories.
+ * - The spending of a category is the one of the Budgets screen (Budget::get(): the
+ *   net spending of its transactions and those of its sub-categories, 0 when refunds
+ *   exceed it), for the expense categories (DEBIT) with a budget: the top-level
+ *   categories and their sub-categories.
  * - Sent with the kind "budget" of the notification preferences, off on every channel
  *   by default (opt-in).
  * - Thresholds of each user: a global one for all the budgets (users.budget_threshold),

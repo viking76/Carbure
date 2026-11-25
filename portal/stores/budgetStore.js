@@ -48,6 +48,13 @@ export function createBudgetStore(apiService) {
         loadingChildren: {},
         
         /**
+         * Copy of the previous month for the displayed month (GET /budget/copy):
+         * {month, source, defined, source_defined, copyable}, null while unknown
+         * @type {Object|null}
+         */
+        copyStatus: null,
+
+        /**
          * Main loading state
          */
         isLoading: false,
@@ -86,12 +93,52 @@ export function createBudgetStore(apiService) {
     }
     
     /**
-     * Loads root budget data
+     * Number of the last request of the copy status: an older answer is ignored
+     * (the month changed meanwhile)
+     */
+    let copyStatusRequest = 0;
+
+    /**
+     * Key of a month as returned by the API ("2026-03")
+     * @param {number} month - Month (1-12)
+     * @param {number} year - Year
+     * @returns {string}
+     */
+    function monthKey(month, year) {
+        return `${year}-${String(month).padStart(2, '0')}`;
+    }
+
+    /**
+     * Loads whether the copy of the previous month is offered for a month. The status
+     * of another month is forgotten at once; a failure leaves it unknown (no button)
+     * @param {number} month - Month (1-12)
+     * @param {number} year - Year
+     * @returns {Promise<void>}
+     */
+    async function loadCopyStatus(month, year) {
+        const request = ++copyStatusRequest;
+        if (state.copyStatus?.month !== monthKey(month, year)) {
+            state.copyStatus = null;
+        }
+        let status = null;
+        try {
+            status = await apiService.fetchBudgetCopyStatus(month, year);
+        } catch (error) {
+            console.error('Budget copy status error:', error);
+        }
+        if (request === copyStatusRequest) {
+            state.copyStatus = status;
+        }
+    }
+
+    /**
+     * Loads root budget data, and whether the copy of the previous month is offered
      * @param {number} month - Month (1-12)
      * @param {number} year - Year
      * @returns {Promise<void>}
      */
     async function loadRootBudgets(month, year) {
+        const copyStatus = loadCopyStatus(month, year);
         state.isLoading = true;
         state.error = null;
         // The sub-categories are fetched again: their amounts may have changed (#402)
@@ -115,6 +162,7 @@ export function createBudgetStore(apiService) {
         } finally {
             state.isLoading = false;
         }
+        await copyStatus;
     }
     
     /**
@@ -204,11 +252,22 @@ export function createBudgetStore(apiService) {
      * @param {number} month - Month
      * @param {number} year - Year
      * @param {number} newAmount - New budget amount
+     * @param {string} [note] - Reminder of what the budget covers ('' removes it)
      * @returns {Promise<void>}
      */
-    async function updateBudget(budgetId, month, year, newAmount) {
-        await apiService.updateBudget(budgetId, month, year, newAmount);
-        // Reload the budgets (a parent depends on its sub-categories), staying on the displayed level
+    async function updateBudget(budgetId, month, year, newAmount, note) {
+        await apiService.updateBudget(budgetId, month, year, newAmount, note);
+        // A parent depends on its sub-categories
+        await reloadBudgets(month, year);
+    }
+
+    /**
+     * Reloads the budgets (amounts spent included), staying on the displayed level
+     * @param {number} month - Month (1-12)
+     * @param {number} year - Year
+     * @returns {Promise<void>}
+     */
+    async function reloadBudgets(month, year) {
         const stack = state.breadcrumbStack.slice();
         await loadRootBudgets(month, year);
         for (const crumb of stack) {
@@ -225,12 +284,8 @@ export function createBudgetStore(apiService) {
      */
     async function copyBudgets(month, year, overwrite = false) {
         const result = await apiService.copyBudgets(month, year, overwrite);
-        // Reload the budgets (a parent depends on its sub-categories), staying on the displayed level
-        const stack = state.breadcrumbStack.slice();
-        await loadRootBudgets(month, year);
-        for (const crumb of stack) {
-            await navigateToChildren(crumb, month, year);
-        }
+        // A parent depends on its sub-categories
+        await reloadBudgets(month, year);
         return result;
     }
     
@@ -244,9 +299,11 @@ export function createBudgetStore(apiService) {
     return {
         state,
         loadRootBudgets,
+        loadCopyStatus,
         navigateToChildren,
         navigateToBreadcrumb,
         updateBudget,
+        reloadBudgets,
         copyBudgets,
         filterBudgets,
         abortAll

@@ -8,6 +8,7 @@
  */
 
 import CategoryPicker from './components/CategoryPicker.js';
+import TagInput from './components/TagInput.js';
 import SqlEditor from './components/SqlEditor.js';
 import FlowChart from './components/FlowChart.js';
 import { createApiService } from './services/apiService.js';
@@ -22,6 +23,7 @@ import { createInsightsModule } from './modules/insightsModule.js';
 import { createUserModule } from './modules/userModule.js';
 import { createProfileModule } from './modules/profileModule.js';
 import { createTrendsModule } from './modules/trendsModule.js';
+import { createTrendCategoriesModule } from './modules/trendCategoriesModule.js';
 import { createRulesModule } from './modules/rulesModule.js';
 import { createSyncModule } from './modules/syncModule.js';
 import { createAccountsModule } from './modules/accountsModule.js';
@@ -36,6 +38,7 @@ import { createConfirmModule } from './modules/confirmModule.js';
 import { createNotificationsModule } from './modules/notificationsModule.js';
 import { createMfaModule } from './modules/mfaModule.js';
 import { createBackupModule } from './modules/backupModule.js';
+import { createPurgeModule } from './modules/purgeModule.js';
 import { createChangesModule } from './modules/changesModule.js';
 
 /**
@@ -51,7 +54,7 @@ const API_BASE_URL = new URL('../api', new URL('.', window.location.href)).href;
 const DEMO_ACCOUNT = { username: 'demo', password: 'carbure' };
 
 /** Tabs reserved to administrators */
-const ADMIN_TABS = ['rules', 'categories', 'accounts', 'users', 'logs', 'config', 'sync', 'push', 'backup', 'api'];
+const ADMIN_TABS = ['rules', 'categories', 'accounts', 'users', 'logs', 'config', 'sync', 'push', 'backup', 'purge', 'api'];
 
 /**
  * Tabs grouped under "Administration" in the navigation of the administrators (the
@@ -66,6 +69,7 @@ const ADMINISTRATION_TABS = [
     { key: 'logs', icon: 'receipt_long', label: 'tabLogs' },
     { key: 'config', icon: 'tune', label: 'tabSettings' },
     { key: 'backup', icon: 'backup', label: 'tabBackup' },
+    { key: 'purge', icon: 'delete_sweep', label: 'tabPurge' },
     // Swagger UI of the API (/swagger/), framed by the portal
     { key: 'api', icon: 'api', label: 'tabApi' }
 ];
@@ -89,6 +93,7 @@ const app = createApp({
     // Register imported components
     components: {
         CategoryPicker,
+        TagInput,
         SqlEditor,
         FlowChart
     },
@@ -105,6 +110,7 @@ const app = createApp({
         createUserModule(() => apiService),
         createProfileModule(() => apiService),
         createTrendsModule(() => apiService),
+        createTrendCategoriesModule(() => apiService),
         createRulesModule(() => apiService),
         createSyncModule(() => apiService),
         createAccountsModule(() => apiService),
@@ -119,6 +125,7 @@ const app = createApp({
         createNotificationsModule(() => apiService),
         createMfaModule(() => apiService),
         createBackupModule(() => apiService),
+        createPurgeModule(() => apiService),
         createChangesModule(() => apiService)
     ],
 
@@ -347,16 +354,31 @@ const app = createApp({
 
         /**
          * Loads the money flow of the selected month (Budget tab)
+         * @param {boolean} keepSelection - Keeps the selected node and reloads its transactions
          * @returns {Promise<void>}
          */
-        async loadBudgetFlow() {
+        async loadBudgetFlow(keepSelection = false) {
             // The nodes depend on the month
-            this.selectFlowNode(null);
+            if (!keepSelection) {
+                this.selectFlowNode(null);
+            }
             try {
                 this.budgetFlow = await apiService.fetchBudgetFlow(this.selectedMonth, this.selectedYear);
             } catch (error) {
                 this.budgetFlow = null;
             }
+            if (keepSelection && this.flowSelection) {
+                this.selectFlowNode(this.flowSelection);
+            }
+        },
+
+        /**
+         * Reloads the Budget tab where it stands (displayed level, listed transactions,
+         * money flow and its selected node): a transaction changed category or was deleted
+         */
+        refreshBudgetTab() {
+            this.reloadBudgetLevel(this.selectedMonth, this.selectedYear);
+            this.loadBudgetFlow(true);
         },
 
         /**
@@ -548,6 +570,9 @@ const app = createApp({
                     break;
                 case 'backup':
                     this.loadBackupInfo();
+                    break;
+                case 'purge':
+                    this.loadPurgeInfo();
                     break;
                 case 'agents':
                     this.loadAgents();

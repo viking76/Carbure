@@ -30,9 +30,10 @@ final class ApiResolver {
      * admin flag of ApiRoute, so a route cached by an older version (without the flag,
      * read as false) cannot open an administrator route to every user; v3 carries the
      * fully qualified class names (namespaces): the global names cached by an older
-     * version would not be found; v4 carries the kinds of data changed by each route
+     * version would not be found; v4 carries the kinds of data changed by each route;
+     * v5 carries the quiet flag (calls logged at the DEBUG level)
      */
-    private const APCU_CACHE_KEY = 'carbure_routes_cache_v4';
+    private const APCU_CACHE_KEY = 'carbure_routes_cache_v5';
 
     /**
      * Namespace of the resource classes (src/resources)

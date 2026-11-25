@@ -75,8 +75,6 @@ class ManualTransactionTest extends DatabaseTestCase
     {
         $account = $this->cash();
         $this->assertApiError('account_not_found', fn() => Transaction::createManual(999, $this->day(0), 'X', -1));
-        $bnp = (int)Db::queryOne("SELECT id FROM bank_account WHERE bank_name = 'bnp' LIMIT 1", "")['id'];
-        $this->assertApiError('account_not_manual', fn() => Transaction::createManual($bnp, $this->day(0), 'X', -1));
         $this->assertApiError('transaction_date_invalid', fn() => Transaction::createManual($account, '2026-02-30', 'X', -1));
         $this->assertApiError('transaction_date_invalid', fn() => Transaction::createManual($account, 'demain', 'X', -1));
         $this->assertApiError('transaction_label_invalid', fn() => Transaction::createManual($account, $this->day(0), "  \n ", -1));
@@ -84,6 +82,32 @@ class ManualTransactionTest extends DatabaseTestCase
         $this->assertApiError('transaction_amount_invalid', fn() => Transaction::createManual($account, $this->day(0), 'X', 0));
         $this->assertApiError('transaction_amount_invalid', fn() => Transaction::createManual($account, $this->day(0), 'X', 'abc'));
         $this->assertApiError('category_not_found', fn() => Transaction::createManual($account, $this->day(0), 'X', -1, 99));
+    }
+
+    public function testEnterATransactionByHandOnASynchronizedAccount()
+    {
+        $this->loginAs(self::USER);
+        $bnp = (int)Db::queryOne("SELECT id FROM bank_account WHERE bank_name = 'bnp' LIMIT 1", "")['id'];
+
+        // On the account of the bank, told apart by its UUID
+        $row = Transaction::createManual($bnp, $this->day(2), 'Boulangerie', -4.5);
+        $this->assertSame(['bnp', '111', 1, self::USER], [$row['bank_name'], $row['account_number'], $row['pointed'], $row['user']]);
+        $this->assertMatchesRegularExpression('/^' . Transaction::MANUAL_UUID . '[0-9a-f]{26}$/', $row['uuid']);
+        $this->assertTrue(Transaction::enteredByHand($row));
+        $this->assertSame('FOURNIL DU PORT', Transaction::updateManual((int)$row['id'], null, 'Fournil du port')['label']);
+
+        // The synchronization of the account adds the transaction of the bank, the one entered by hand stays
+        $origin = ['bank_name' => 'bnp', 'account_number' => '111'];
+        $bank = ['type' => 8, 'raw' => 'FOURNIL DU PORT', 'amount' => -4.5, 'date' => $this->day(2)];
+        $this->assertCount(1, Transaction::save([$bank], self::ADMIN, false, $origin));
+        $this->assertCount(0, Transaction::save([$bank], self::ADMIN, false, $origin));
+        $kept = Db::queryOne("SELECT uuid, label, amount, user FROM bank_transaction WHERE id = ?", "i", $row['id']);
+        $this->assertSame([$row['uuid'], 'FOURNIL DU PORT', '-4.50', self::USER], array_values($kept));
+        $this->assertSame(2, (int)Db::queryOne("SELECT COUNT(*) AS n FROM bank_transaction WHERE label = 'FOURNIL DU PORT'", "")['n']);
+
+        // Found among the transactions of that account
+        $listed = Transaction::search(limit: 500, accounts: '111@bnp');
+        $this->assertContains((int)$row['id'], array_map('intval', array_column($listed, 'id')));
     }
 
     public function testChangeATransactionEnteredByHand()

@@ -6,7 +6,8 @@
  * Data set of the end-to-end tests and of the development stack: the database is
  * dropped, recreated from sql/carbure.sql, then filled with a household whose dates
  * follow the current month. Only for a database named *_e2e, *_dev or *_demo (the
- * demonstration Docker image, docker/demo/Dockerfile, loads it with --demo at each start).
+ * demonstration Docker image, docker/demo/Dockerfile, loads it with --demo at each start
+ * and each day).
  *
  * From the command line (development stack, see start.sh):
  *   php tests/e2e/server/seed.php           the data set of the tests

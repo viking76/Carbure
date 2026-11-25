@@ -1,5 +1,5 @@
 // Budget tab: money flow, budgets by category, sub-categories, editing a budget
-const { test, expect, tr, openTab, euros, currentMonth } = require('../fixtures');
+const { test, expect, tr, openTab, euros, currentMonth, offerBudgetCopy, escapeRegExp } = require('../fixtures');
 
 /**
  * Checks the amounts of a budget card: spent / budget
@@ -119,8 +119,9 @@ test('edits the budget of a sub-category', async ({ adminPage: page, api }) => {
     await card(page, 'Alimentation').click();
 
     const modal = await editBudget(page, 'Supermarché');
-    // A category without sub-categories has no "sum" option
-    await expect(modal.getByRole('checkbox')).toHaveCount(0);
+    // A category without sub-categories has no "sum" option, only "no budget"
+    await expect(modal.getByRole('checkbox')).toHaveCount(1);
+    await expect(modal.getByRole('checkbox', { name: tr('budgetNone') })).not.toBeChecked();
     await modal.getByLabel(tr('budgetEditLabel')).fill('350');
     await modal.getByRole('button', { name: tr('save') }).click();
 
@@ -132,6 +133,31 @@ test('edits the budget of a sub-category', async ({ adminPage: page, api }) => {
     await page.getByRole('button', { name: tr('allCategories') }).click();
     await expect(card(page, 'Alimentation').locator('.of')).toHaveText(`/ Σ ${euros(450)}`);
     expect(Number((await apiBudget(api, 'Supermarché', 1)).budget)).toBe(350);
+});
+
+test('adds a note to a budget, shown on its card, then removes it (#468)', async ({ adminPage: page, api }) => {
+    await openBudgets(page);
+
+    let modal = await editBudget(page, 'Logement');
+    await expect(modal.getByLabel(tr('budgetNoteLabel'))).toHaveValue('');
+    await modal.getByLabel(tr('budgetNoteLabel')).fill('  Loyer + charges, régularisation en juin  ');
+    await modal.getByRole('button', { name: tr('save') }).click();
+    await expect(modal).toHaveCount(0);
+
+    // Shown on the card, trimmed; the amount is unchanged
+    const note = card(page, 'Logement').locator('.budget-card-note');
+    await expect(note).toContainText('Loyer + charges, régularisation en juin');
+    await expect(note).toHaveAttribute('title', 'Loyer + charges, régularisation en juin');
+    expect(await apiBudget(api, 'Logement')).toMatchObject({ note: 'Loyer + charges, régularisation en juin' });
+
+    // Found again in the modal, then removed
+    modal = await editBudget(page, 'Logement');
+    await expect(modal.getByLabel(tr('budgetNoteLabel'))).toHaveValue('Loyer + charges, régularisation en juin');
+    await modal.getByLabel(tr('budgetNoteLabel')).fill('');
+    await modal.getByRole('button', { name: tr('save') }).click();
+    await expect(modal).toHaveCount(0);
+    await expect(card(page, 'Logement').locator('.budget-card-note')).toHaveCount(0);
+    expect((await apiBudget(api, 'Logement')).note).toBeNull();
 });
 
 test('overrides the budget of a parent category, then goes back to the sum', async ({ adminPage: page, api }) => {
@@ -191,31 +217,76 @@ test('refuses an invalid amount', async ({ adminPage: page }) => {
     await expect(modal).toHaveCount(0);
 });
 
+/**
+ * Waits for the answer telling whether the copy of the previous month is offered
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<import('@playwright/test').Response>}
+ */
+const copyStatus = page => page.waitForResponse(response => response.url().includes('/api/budget/copy?'));
+
+/** Name of a month inside a sentence ("octobre") */
+const monthName = month => tr(`months.${month}`).toLowerCase();
+
+/**
+ * Lets the page notice the changes made through the API (back to the foreground)
+ * @param {import('@playwright/test').Page} page
+ */
+const backToPage = page => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+test('offers the copy of the previous month only when the month has no budget and the previous one has some', async ({ adminPage: page, api }) => {
+    // The current month has its budgets (seed.php): not offered
+    let status = copyStatus(page);
+    await openBudgets(page);
+    expect((await (await status).json()).copyable).toBe(false);
+    await expect(page.locator('.budget-copy-button')).toHaveCount(0);
+
+    // The previous month has none, nor the month before it: not offered either
+    status = copyStatus(page);
+    await page.getByRole('button', { name: tr('periodPrevious'), exact: true }).click();
+    expect(await (await status).json()).toMatchObject({ defined: false, source_defined: false, copyable: false });
+    await expect(page.locator('.budget-copy-button')).toHaveCount(0);
+
+    // Another member sets a budget the month before: offered without reloading the page
+    const before = currentMonth(2);
+    expect((await api.post('/api/budget', { data: { category: 4, amount: 900, ...before } })).ok()).toBeTruthy();
+    await backToPage(page);
+    const copyButton = page.getByRole('button', { name: tr('budgetCopyButton', { month: monthName(before.month) }), exact: true });
+    await copyButton.click();
+    await page.getByRole('dialog', { name: tr('budgetCopyTitle') }).getByRole('button', { name: tr('budgetCopyConfirm') }).click();
+    await expect(page.locator('.toast')).toHaveText(tr('budgetCopiedToast', { count: 1 }));
+    await expectAmounts(card(page, 'Logement'), 950, `/ ${euros(900)}`);
+
+    // Once copied, the month has its budget: no longer offered
+    await expect(page.locator('.budget-copy-button')).toHaveCount(0);
+});
+
 test('copies the budgets of the previous month, completing or overwriting', async ({ adminPage: page, api }) => {
     const prev = currentMonth(1);
-    const prevName = tr(`months.${prev.month}`).toLowerCase();
-    const copyButton = () => page.getByRole('button', { name: tr('budgetCopyButton', { month: prevName }), exact: true });
+    const copyButton = () => page.getByRole('button', { name: tr('budgetCopyButton', { month: monthName(prev.month) }), exact: true });
 
-    // The previous month differs from the current one (Supermarché 300, Restaurant 100),
-    // and Salaire has no budget yet
-    for (const [category, amount] of [[2, 321], [3, 123], [5, 2000]]) {
-        const response = await api.post('/api/budget', { data: { category, amount, month: prev.month, year: prev.year } });
-        expect(response.ok()).toBeTruthy();
-    }
+    // The current month only has budgets at 0 (sum of the sub-categories: not defined);
+    // the previous month has Supermarché 321, Restaurant 123 and Salaire 2000
+    await offerBudgetCopy(api, [[2, 321], [3, 123], [5, 2000]]);
 
     await openBudgets(page);
     await copyButton().click();
     let modal = page.getByRole('dialog', { name: tr('budgetCopyTitle') });
-    await expect(modal).toContainText(tr('budgetCopyHelp', { month: prevName }));
-    // Completing only, by default: only Salaire is copied
+    await expect(modal).toContainText(tr('budgetCopyHelp', { month: monthName(prev.month) }));
+    // Completing only, by default: only Salaire is copied (the others are set, at 0)
     await expect(modal.getByRole('radio', { name: tr('budgetCopyMissing') })).toBeChecked();
     await modal.getByRole('button', { name: tr('budgetCopyConfirm') }).click();
 
     await expect(page.locator('.toast')).toHaveText(tr('budgetCopiedToast', { count: 1 }));
     await expect(page.locator('.budget-section-incomes')).toContainText('Salaire');
-    expect(Number((await apiBudget(api, 'Supermarché', 1)).budget)).toBe(300);
+    expect(Number((await apiBudget(api, 'Supermarché', 1)).budget)).toBe(0);
+    // The month has a budget now: no longer offered
+    await expect(copyButton()).toHaveCount(0);
 
-    // Overwriting: the budgets of the previous month replace the current ones
+    // Salaire put back to 0 by another member: offered again; overwriting, the budgets
+    // of the previous month replace the current ones
+    const { month, year } = currentMonth();
+    expect((await api.post('/api/budget', { data: { category: 5, amount: 0, month, year } })).ok()).toBeTruthy();
+    await backToPage(page);
     await copyButton().click();
     modal = page.getByRole('dialog', { name: tr('budgetCopyTitle') });
     await modal.getByRole('radio', { name: tr('budgetCopyOverwrite') }).check();
@@ -271,4 +342,59 @@ test('the sub-categories follow a transaction recategorized elsewhere (#402)', a
     // Its sub-category is fetched again, not taken from the cache
     await card(page, 'Alimentation').click();
     await expect(card(page, 'Supermarché').locator('.spent')).toHaveText(euros(89.2));
+});
+
+test('the transactions put on a parent category have their own card in its sub-categories (#492)', async ({ adminPage: page, api }) => {
+    // The bakery put on Alimentation itself, not on one of its sub-categories
+    const { month, year } = currentMonth();
+    const transactions = await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json();
+    const bakery = transactions.find(t => t.label === 'CB BOULANGERIE PAUL');
+    expect((await api.put('/api/transaction/category', { data: { id: bakery.id, category: 1 } })).ok()).toBeTruthy();
+
+    await openBudgets(page);
+    await expect(card(page, 'Alimentation').locator('.spent')).toHaveText(euros(134.2));
+    await card(page, 'Alimentation').click();
+    await expect(card(page, 'Supermarché').locator('.spent')).toHaveText(euros(82.4));
+
+    // Its card: what it spent, no budget to set, nor a gauge
+    const name = tr('budgetOwnTransactions', { category: 'Alimentation' });
+    const own = card(page, escapeRegExp(name));
+    await expect(own.locator('.spent')).toHaveText(euros(6.8));
+    await expect(own.locator('.of')).toHaveCount(0);
+    await expect(own.getByRole('button', { name: tr('budgetEditTitle') })).toHaveCount(0);
+
+    // A click lists only its transactions and stays on the level
+    await own.click();
+    const list = page.locator('.budget-transactions');
+    await expect(list).toContainText(tr('categoryTransactions', { category: name }));
+    await expect(list.locator('.transaction-item')).toHaveCount(1);
+    await expect(list).toContainText('CB BOULANGERIE PAUL');
+    await expect(own).toHaveClass(/selected/);
+    await expect(card(page, 'Supermarché')).toBeVisible();
+    await expect(page.locator('.budget-breadcrumb')).toContainText('Alimentation');
+});
+
+test('a category without budget shows what it spent, not an overspending (#491)', async ({ adminPage: page, api }) => {
+    await openBudgets(page);
+
+    const modal = await editBudget(page, 'Logement');
+    await modal.getByRole('checkbox', { name: tr('budgetNone') }).check();
+    await expect(modal.getByLabel(tr('budgetEditLabel'))).toHaveCount(0);
+    await modal.getByRole('button', { name: tr('save') }).click();
+    await expect(page.locator('.toast')).toHaveText(tr('budgetUpdatedToast'));
+
+    // Saved as 0, with the categories without budget: its spending, no gauge nor overspending
+    expect(Number((await apiBudget(api, 'Logement')).budget)).toBe(0);
+    const logement = page.locator('.budget-section-others .budget-card')
+        .filter({ has: page.locator('.budget-card-name', { hasText: /^Logement$/ }) });
+    await expect(logement.locator('.spent')).toHaveText(euros(950));
+    await expect(logement.locator('.of')).toHaveCount(0);
+    await expect(logement).not.toContainText(tr('overspentAmount', { amount: euros(950) }));
+    await expect(page.locator('.budget-section-others .budget-section-title')).toHaveText(tr('othersSection'));
+
+    // Out of the summary of the budgeted expenses: only Alimentation, 127.40 of 400
+    await expect(page.locator('.budget-section-expenses .budget-card')).toHaveCount(1);
+    const summary = page.locator('.budget-summary');
+    await expect(summary).toContainText(euros(127.4));
+    await expect(summary).toContainText(euros(400));
 });

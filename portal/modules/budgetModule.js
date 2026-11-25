@@ -60,7 +60,10 @@ export function createBudgetModule(getBudgetStore, getApiService) {
                 budgetToEdit: null,
                 // Edit modal: amount, and for a parent category the sum of its sub-categories
                 budgetNewValue: '',
+                budgetNote: '',
                 budgetUseChildren: false,
+                // Edit modal of a category without sub-categories: no budget (saved as 0)
+                budgetNone: false,
                 savingBudget: false,
                 // Copy of the previous month: modal, missing (default) or all, ongoing request
                 showCopyModal: false,
@@ -96,17 +99,17 @@ export function createBudgetModule(getBudgetStore, getApiService) {
 
             /**
              * Budget items grouped for display: budgeted expenses, incomes, others
-             * (off-budget categories, or nothing budgeted nor spent)
+             * (off-budget categories, or expense categories without a budget: what they
+             * spent is shown, not as an overspending)
              * @returns {{expenses: Array, incomes: Array, others: Array}}
              */
             budgetGroups() {
                 const groups = { expenses: [], incomes: [], others: [] };
                 for (const item of this.currentBudgetList) {
                     const budget = Number(item.budget) || 0;
-                    const consumed = Number(item.consummed) || 0;
                     if (item.type === 'CREDIT') {
                         groups.incomes.push(item);
-                    } else if (item.type === 'HORS-BUDGET' || (budget === 0 && consumed === 0)) {
+                    } else if (item.type === 'HORS-BUDGET' || budget === 0) {
                         groups.others.push(item);
                     } else {
                         groups.expenses.push(item);
@@ -150,6 +153,18 @@ export function createBudgetModule(getBudgetStore, getApiService) {
             copySourceName() {
                 const name = String(this.t(`months.${this.copySource.month}`));
                 return ['en', 'de'].includes(this.locale) ? name : name.toLowerCase();
+            },
+
+            /**
+             * The copy of the previous month is offered: the selected month has no budget
+             * defined and the previous month has some (hidden while unknown)
+             * @returns {boolean}
+             */
+            budgetCopyOffered() {
+                const status = getBudgetStore()?.state?.copyStatus;
+                const month = Number(this.selectedMonth) || new Date().getMonth() + 1;
+                const year = Number(this.selectedYear) || new Date().getFullYear();
+                return status?.copyable === true && status.month === `${year}-${String(month).padStart(2, '0')}`;
             },
 
             /**
@@ -254,17 +269,38 @@ export function createBudgetModule(getBudgetStore, getApiService) {
             },
 
             /**
-             * Loads the transactions of a category (sub-categories included)
-             * @param {Object} category - Category {id, name}
+             * Name of a budget item: the item of the transactions put on a parent
+             * category itself (own) says that they are in none of its sub-categories
+             * @param {Object} item - Budget item
+             * @returns {string}
+             */
+            budgetItemName(item) {
+                return item.own ? this.t('budgetOwnTransactions', { category: item.name }) : item.name;
+            },
+
+            /**
+             * The budget item is the one whose transactions are listed under the cards
+             * @param {Object} item - Budget item
+             * @returns {boolean}
+             */
+            isBudgetCategorySelected(item) {
+                return !!this.budgetCategory && this.budgetCategory.id === item.id && this.budgetCategory.own === !!item.own;
+            },
+
+            /**
+             * Loads the transactions of a category (sub-categories included, or only those
+             * put on the category itself for the own item of a parent category)
+             * @param {Object} category - Category or budget item {id, name, own?}
              * @param {number} month - Month (1-12)
              * @param {number} year - Year
              * @returns {Promise<void>}
              */
             async loadBudgetTransactions(category, month, year) {
-                this.budgetCategory = { id: category.id, name: category.name };
+                const own = !!category.own;
+                this.budgetCategory = { id: category.id, name: this.budgetItemName(category), own };
                 this.loadingBudgetTransactions = true;
                 try {
-                    this.budgetTransactions = await getApiService().fetchCategoryTransactions(month, year, category.id);
+                    this.budgetTransactions = await getApiService().fetchCategoryTransactions(month, year, category.id, own);
                     // Icons of the rows: the categories of the transactions
                     this.ensureCategories();
                 } catch (err) {
@@ -290,6 +326,29 @@ export function createBudgetModule(getBudgetStore, getApiService) {
             },
 
             /**
+             * Reloads the budgets of the displayed level and the transactions listed under
+             * the cards (after a transaction changed category or was deleted)
+             * @param {number} month - Month (1-12)
+             * @param {number} year - Year
+             * @returns {Promise<void>}
+             */
+            async reloadBudgetLevel(month, year) {
+                const store = getBudgetStore();
+                if (!store) {
+                    return;
+                }
+                const category = this.budgetCategory;
+                try {
+                    await store.reloadBudgets(month, year);
+                } catch (err) {
+                    this.showToast(err.message);
+                }
+                if (category) {
+                    this.loadBudgetTransactions(category, month, year);
+                }
+            },
+
+            /**
              * Navigates to child budgets for a given item
              * @param {Object} item - Budget item to navigate to
              * @param {number} month - Month (1-12)
@@ -306,7 +365,10 @@ export function createBudgetModule(getBudgetStore, getApiService) {
                 try {
                     // List the transactions of the category, then go into its sub-categories if any
                     this.loadBudgetTransactions(item, month, year);
-                    await store.navigateToChildren(item, month, year);
+                    // The own item of a parent: its transactions only (its children are the current level)
+                    if (!item.own) {
+                        await store.navigateToChildren(item, month, year);
+                    }
                 } catch (err) {
                     console.error('Navigate to budget error:', err);
                     this.showToast(this.apiErrorText(err) || this.t('navigationError'));
@@ -348,25 +410,28 @@ export function createBudgetModule(getBudgetStore, getApiService) {
             handleBudgetEdit(item) {
                 this.budgetToEdit = item;
                 this.budgetUseChildren = item.budget_mode === 'children';
+                this.budgetNone = false;
                 this.budgetNewValue = this.budgetUseChildren ? '' : (Number(item.budget) || '');
+                this.budgetNote = item.note || '';
                 this.showBudgetModal = true;
                 this.$nextTick(() => document.getElementById('budget-edit-amount')?.focus());
             },
 
             /**
              * Saves the budget of the edit modal: the amount, or 0 for a parent category
-             * whose budget is the sum of its sub-categories
+             * whose budget is the sum of its sub-categories or for a category without budget
              * @returns {Promise<void>}
              */
             async submitBudgetEdit() {
-                const amount = this.budgetUseChildren ? 0 : Number(this.budgetNewValue);
-                if (!Number.isFinite(amount) || amount < 0 || (!this.budgetUseChildren && this.budgetNewValue === '')) {
+                const noAmount = this.budgetUseChildren || this.budgetNone;
+                const amount = noAmount ? 0 : Number(this.budgetNewValue);
+                if (!Number.isFinite(amount) || amount < 0 || (!noAmount && this.budgetNewValue === '')) {
                     this.showToast(this.t('budgetInvalidAmount'));
                     return;
                 }
                 this.savingBudget = true;
                 try {
-                    await this.handleBudgetSave(amount, this.selectedMonth, this.selectedYear);
+                    await this.handleBudgetSave(amount, this.selectedMonth, this.selectedYear, this.budgetNote.trim());
                 } finally {
                     this.savingBudget = false;
                 }
@@ -429,9 +494,10 @@ export function createBudgetModule(getBudgetStore, getApiService) {
              * @param {number} newValue - New budget amount
              * @param {number} month - Month (1-12)
              * @param {number} year - Year
+             * @param {string} [note] - Reminder of what the budget covers ('' removes it)
              * @returns {Promise<void>}
              */
-            async handleBudgetSave(newValue, month, year) {
+            async handleBudgetSave(newValue, month, year, note) {
                 const store = getBudgetStore();
                 if (!store) {
                     console.error('Budget store not initialized');
@@ -443,7 +509,8 @@ export function createBudgetModule(getBudgetStore, getApiService) {
                         this.budgetToEdit.id,
                         month,
                         year,
-                        newValue
+                        newValue,
+                        note
                     );
 
                     this.showToast(this.t('budgetUpdatedToast'));

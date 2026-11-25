@@ -2,6 +2,7 @@
 
 namespace Carbure\Lib;
 
+use Carbure\Resources\Transaction;
 use DateTime;
 use Error;
 
@@ -26,7 +27,7 @@ final class TransactionSearch
     /**
      * Reads the criteria; each one is optional, at least one is needed.
      *
-     * @param string|null $query      Text found in the label (2 characters minimum), or #tag
+     * @param string|null $query      Text found in the label or the comment (2 characters minimum), or #tag
      * @param mixed       $min        Smallest amount, without sign
      * @param mixed       $max        Largest amount, without sign
      * @param string|null $kind       "debit" (expenses) or "credit" (incomes)
@@ -34,12 +35,14 @@ final class TransactionSearch
      * @param string|null $accounts   Accounts, comma-separated bankIds (account_number@bank_name)
      * @param string|null $from       First day (YYYY-MM-DD)
      * @param string|null $to         Last day (YYYY-MM-DD)
+     * @param bool        $labelOnly  The text is searched in the label only, not in the comment
+     *                                (the transactions similar to one: same merchant)
      * @throws Error If a criterion is invalid, or none is given (400)
      */
     public function __construct(?string $query, mixed $min, mixed $max, ?string $kind,
-        ?string $categories, ?string $accounts, ?string $from, ?string $to)
+        ?string $categories, ?string $accounts, ?string $from, ?string $to, bool $labelOnly = false)
     {
-        $this->addQuery(trim((string)$query));
+        $this->addQuery(trim((string)$query), $labelOnly);
         $this->addAmounts(self::amount($min), self::amount($max));
         $this->addKind((string)$kind);
         $this->addCategories(self::list($categories));
@@ -75,12 +78,15 @@ final class TransactionSearch
     }
 
     /**
-     * Text in the label (stored in upper case, LIKE wildcards escaped), or the tag of this name.
+     * Text in the label (stored in upper case, LIKE wildcards escaped) or in the comment (once
+     * the migration 2026-11-19_transaction_comment is applied; case-insensitive collation),
+     * or the tag of this name.
      *
-     * @param string $query Trimmed text ('' when none)
+     * @param string $query     Trimmed text ('' when none)
+     * @param bool   $labelOnly In the label only, not in the comment
      * @throws Error If it is shorter than 2 characters (400)
      */
-    private function addQuery(string $query): void
+    private function addQuery(string $query, bool $labelOnly): void
     {
         if ($query === '') {
             return;
@@ -93,7 +99,12 @@ final class TransactionSearch
                 's', mb_strtolower(ltrim($query, '#')));
             return;
         }
-        $this->add("b.label LIKE ?", 's', '%' . addcslashes(strtoupper($query), '%_\\') . '%');
+        $like = '%' . addcslashes(strtoupper($query), '%_\\') . '%';
+        if (!$labelOnly && Transaction::commentReady()) {
+            $this->add("(b.label LIKE ? OR b.comment LIKE ?)", 'ss', $like, $like);
+            return;
+        }
+        $this->add("b.label LIKE ?", 's', $like);
     }
 
     /**

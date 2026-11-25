@@ -117,6 +117,17 @@ export function createCategoriesModule(getApiService) {
             },
 
             /**
+             * Opens the category modal to add a sub-category of the given top-level
+             * category: its parent and its type are already chosen
+             * @param {Object} parent - Top-level category
+             */
+            openSubcategoryModal(parent) {
+                this.openCategoryModal();
+                this.categoryForm.parent_category = Number(parent.id);
+                this.categoryForm.type = parent.type;
+            },
+
+            /**
              * Creates or modifies the category of the form
              * @returns {Promise<void>}
              */

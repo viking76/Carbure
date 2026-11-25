@@ -72,7 +72,12 @@ test('the transactions on a phone: search bar, recurring strip, icon buttons, fu
     const search = await page.locator('.transaction-search-main').boundingBox();
     expect(search.width).toBeGreaterThan(viewport.width * 0.85);
     const strip = page.getByRole('region', { name: tr('recurringSummary') });
-    expect((await strip.boundingBox()).height).toBeLessThan(140);
+    // Folded (#465): one line, its chevron a target of 24 x 24 px at least
+    const unfold = strip.getByRole('button', { name: tr('recurringDetails') });
+    expect((await strip.boundingBox()).height).toBeLessThan(64);
+    expect((await unfold.boundingBox()).width).toBeGreaterThanOrEqual(24);
+    await unfold.click();
+    expect((await strip.boundingBox()).height).toBeLessThan(180);
     expect(await strip.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     const calendar = strip.getByRole('button', { name: tr('recurringCalendarButton'), exact: true });
     await expect(calendar).toBeVisible();

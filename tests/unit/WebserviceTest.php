@@ -280,4 +280,50 @@ class WebserviceTest extends TestCase
         $this->assertStringNotContainsString($value, $log);
         $this->assertStringContainsString('"message":"Calling : EchoResource.echo","context":{"params":["first"]}', $log);
     }
+
+    public function testTheHealthCheckIsLoggedAtTheDebugLevel()
+    {
+        $minLevel = new ReflectionProperty(Logger::class, 'minLevel');
+        $file = Config::get('data_dir') . '/logs/carbure_test_' . date('Ymd') . '.log';
+        Logger::flush();
+        clearstatcache();
+        $size = is_file($file) ? filesize($file) : 0;
+        $_SERVER['REQUEST_URI'] = '/api/health';
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+
+        // At the INFO level: no entry for the call (the database may be missing here: only
+        // its error would be written)
+        Config::set('log_level', 'info');
+        $minLevel->setValue(null, null);
+        try {
+            try {
+                Webservice::exec();
+            } catch (Throwable) {
+                // No database in the unit tests
+            }
+            Logger::flush();
+        } finally {
+            Config::set('log_level', 'debug');
+            $minLevel->setValue(null, null);
+            Logger::setQuiet(false);
+        }
+        clearstatcache();
+        $written = is_file($file) ? (string)file_get_contents($file, false, null, $size) : '';
+        $this->assertStringNotContainsString('Calling : System.health', $written);
+
+        // At the DEBUG level: the call is written, at the DEBUG level
+        try {
+            try {
+                Webservice::exec();
+            } catch (Throwable) {
+                // No database in the unit tests
+            }
+            Logger::flush();
+        } finally {
+            Logger::setQuiet(false);
+        }
+        $lines = array_values(array_filter(file($file), fn($line) => str_contains($line, '"message":"Calling : System.health"')));
+        $this->assertNotEmpty($lines);
+        $this->assertSame('DEBUG', json_decode(end($lines), true)['level']);
+    }
 }

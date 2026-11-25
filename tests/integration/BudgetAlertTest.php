@@ -44,6 +44,15 @@ class BudgetAlertTest extends DatabaseTestCase
         $this->assertSame(['id' => 2, 'name' => 'Supermarché', 'budget' => 60.0, 'spent' => 80.0], $spending[1]);
     }
 
+    public function testARefundLargerThanTheSpendingIsNothingSpent()
+    {
+        // Énergie (100 €, -50 € spent) refunded 120 €: no spending to alert on (issue #469)
+        Db::execute("INSERT INTO bank_transaction (uuid, date, rdate, type, label, category, amount, user)
+            VALUES ('refund', ?, ?, 1, 'REMBOURSEMENT ENERGIE', 3, 120, 1)", "ss", $this->day(0), $this->day(0));
+        $spending = $this->byId(BudgetAlert::spending((int)date('n'), (int)date('Y')));
+        $this->assertSame(['id' => 3, 'name' => 'Énergie', 'budget' => 100.0, 'spent' => 0.0], $spending[1]);
+    }
+
     public function testOffByDefault()
     {
         $this->spend(2, -150);

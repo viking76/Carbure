@@ -76,7 +76,21 @@ test('searches with the criteria of the advanced search, removable one by one', 
     // Expenses of 100 or more in Alimentation and its sub-categories, of every month
     await modal.getByRole('radio', { name: tr('advancedSearchExpenses') }).check();
     await modal.getByLabel(tr('advancedSearchMin', { currency: '€' })).fill('100');
-    await modal.getByRole('checkbox', { name: 'Alimentation' }).check();
+    // Chosen in the list of the portal (#423): a chip with its icon, no more offered in the list
+    const categories = modal.getByRole('group', { name: tr('advancedSearchCategories') });
+    await pickCategory(categories, 'Restaurant');
+    await pickCategory(categories, 'Alimentation');
+    const chosen = categories.locator('.advanced-search-category-name');
+    await expect(chosen).toHaveText(['Restaurant', 'Alimentation']);
+    await expect(categories.locator('.advanced-search-category').first().locator('.category-badge .material-icons')).toHaveText('local_dining');
+    await categories.getByRole('button', { name: tr('advancedSearchRemove', { filter: 'Restaurant' }) }).click();
+    await expect(chosen).toHaveText(['Alimentation']);
+    await categories.locator('.category-picker-button').click();
+    const option = name => categories.locator('.category-picker-option')
+        .filter({ has: page.locator('.category-picker-name', { hasText: new RegExp(`^\\s*${name}\\s*$`) }) });
+    await expect(option('Logement')).toHaveCount(1);
+    await expect(option('Alimentation')).toHaveCount(0);
+    await page.keyboard.press('Escape');
     await modal.getByRole('button', { name: tr('advancedSearchApply') }).click();
 
     await expect(modal).toHaveCount(0);
@@ -86,6 +100,13 @@ test('searches with the criteria of the advanced search, removable one by one', 
     await expect(button).toHaveAccessibleName(tr('advancedSearchActive', { count: 3 }));
     const chips = page.locator('.search-filter-chip-label');
     await expect(chips).toHaveText([tr('advancedSearchExpenses'), tr('advancedSearchAmountMin', { amount: euros(100) }), 'Alimentation']);
+    // Right below the search bar, above the list (#441)
+    const bar = await page.locator('.transaction-search-main').boundingBox();
+    const filters = await page.locator('.search-filters').boundingBox();
+    const list = await page.locator('.transactions-container').boundingBox();
+    expect(filters.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+    expect(filters.y - (bar.y + bar.height)).toBeLessThan(24);
+    expect(filters.y + filters.height).toBeLessThanOrEqual(list.y);
 
     // Without the amount: the restaurant and the supermarket of this month too
     await page.getByRole('button', { name: tr('advancedSearchRemove', { filter: tr('advancedSearchAmountMin', { amount: euros(100) }) }) }).click();
@@ -94,7 +115,7 @@ test('searches with the criteria of the advanced search, removable one by one', 
 
     // The modal starts from the search shown; a text narrows it
     await button.click();
-    await expect(modal.getByRole('checkbox', { name: 'Alimentation' })).toBeChecked();
+    await expect(modal.locator('.advanced-search-category-name')).toHaveText(['Alimentation']);
     await modal.getByLabel(tr('advancedSearchLabel')).fill('casino');
     await modal.getByRole('button', { name: tr('advancedSearchApply') }).click();
     await expect(page.getByRole('searchbox', { name: tr('searchPlaceholder') })).toHaveValue('casino');
@@ -113,6 +134,25 @@ test('filters the transactions not checked yet', async ({ adminPage: page }) => 
     await toggle.click();
     await expect(toggle.getByRole('switch')).toBeChecked();
     await expect(page.locator('.transaction-item')).toHaveCount(3);
+
+    await toggle.click();
+    await expect(page.locator('.transaction-item')).toHaveCount(6);
+});
+
+test('filters the transactions without a category', async ({ adminPage: page }) => {
+    const toggle = page.locator('.toggle-uncategorized');
+    await expect(toggle.locator('.toggle-label')).toHaveText(tr('uncategorizedCount', { count: 1 }));
+
+    await toggle.click();
+    await expect(toggle.getByRole('switch')).toBeChecked();
+    await expect(page.locator('.transaction-item')).toHaveCount(1);
+    await expect(row(page, 'CB BOULANGERIE PAUL')).toBeVisible();
+
+    // Once categorized, it leaves the filtered list
+    await pickCategory(row(page, 'CB BOULANGERIE PAUL'), 'Alimentation');
+    await expect(page.locator('.transaction-item')).toHaveCount(0);
+    await expect(page.locator('.transactions-hint')).toHaveText(tr('allCategorized'));
+    await expect(toggle.locator('.toggle-label')).toHaveText(tr('uncategorizedCount', { count: 0 }));
 
     await toggle.click();
     await expect(page.locator('.transaction-item')).toHaveCount(6);
@@ -247,7 +287,11 @@ test('splits a transaction across several categories, then cancels the split', a
     await page.getByRole('dialog', { name: tr('transactionDetail') }).getByRole('button', { name: tr('splitButton') }).click();
     await expect(modal.getByLabel(tr('splitPartAmount', { number: 1 }))).toHaveValue('62.40');
     await expect(modal.getByLabel(tr('splitPartAmount', { number: 2 }))).toHaveValue('20.00');
-    await modal.getByRole('button', { name: tr('splitCancel') }).click();
+    // The small red trash button at the bottom left, as in a transaction detail
+    const remove = modal.getByRole('button', { name: tr('splitCancel') });
+    await expect(remove).toHaveClass(/btn-danger-icon/);
+    await expect(remove.locator('.material-icons')).toHaveText('delete');
+    await remove.click();
     await expect(page.locator('.toast')).toHaveText(tr('splitCancelled'));
     await expect(rows).toHaveCount(1);
     await expect(rows.locator('.transaction-amount')).toHaveText(euros(-82.4));
@@ -257,7 +301,8 @@ test('deletes the selected transactions (#421)', async ({ adminPage: page, api }
     // No tag: the selection still offers the deletion
     await page.getByRole('button', { name: tr('tagSelect'), exact: true }).click();
     const bar = page.getByRole('region', { name: tr('tagSelect') });
-    await expect(bar.locator('#tag-selection')).toHaveCount(0);
+    // No tag yet: the tag can be typed, nothing to apply
+    await expect(bar.getByRole('button', { name: tr('tagApply') })).toBeDisabled();
     const remove = bar.getByRole('button', { name: tr('selectionDelete') });
     await expect(remove).toBeDisabled();
 
@@ -275,6 +320,72 @@ test('deletes the selected transactions (#421)', async ({ adminPage: page, api }
     const { month, year } = currentMonth();
     const labels = (await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json()).map(t => t.label);
     expect(labels).not.toContain('CB RESTAURANT LE PETIT ZINC');
+});
+
+test('changes the category of the selected transactions from one of them, and checks them', async ({ adminPage: page, api }) => {
+    await page.getByRole('button', { name: tr('tagSelect'), exact: true }).click();
+    const bar = page.getByRole('region', { name: tr('tagSelect') });
+    // Not selected: a categorized transaction keeps its chip, no picker in the bar
+    await expect(row(page, 'CB RESTAURANT LE PETIT ZINC').locator('.category-picker')).toHaveCount(0);
+    await expect(bar.locator('.category-picker')).toHaveCount(0);
+
+    await page.getByLabel(tr('tagSelectTransaction', { label: 'CB BOULANGERIE PAUL' })).check();
+    await page.getByLabel(tr('tagSelectTransaction', { label: 'CB RESTAURANT LE PETIT ZINC' })).check();
+    // Selected: its category is a picker, which changes the whole selection
+    const restaurant = row(page, 'CB RESTAURANT LE PETIT ZINC');
+    await expect(restaurant.locator('.transaction-category')).toHaveAttribute('title', tr('selectionCategoryHelp', { count: 2 }));
+    await expect(restaurant.locator('.category-picker-name')).toContainText('Restaurant');
+    await pickCategory(restaurant, 'Alimentation');
+
+    await expect(page.locator('.toast')).toHaveText(tr('selectionCategorized', { count: 2, name: 'Alimentation' }));
+    // The selection stays, both show the new category
+    await expect(bar.locator('.tag-selection-count')).toHaveText(tr('tagSelected', { count: 2 }));
+    for (const label of ['CB BOULANGERIE PAUL', 'CB RESTAURANT LE PETIT ZINC']) {
+        await expect(row(page, label).locator('.category-picker-name')).toContainText('Alimentation');
+    }
+    await bar.getByRole('button', { name: tr('selectionClose') }).click();
+    for (const label of ['CB BOULANGERIE PAUL', 'CB RESTAURANT LE PETIT ZINC']) {
+        await expect(row(page, label).locator('.category-chip')).toHaveText('Alimentation');
+    }
+    // The others did not change
+    await expect(row(page, 'CB SUPERMARCHE CASINO').locator('.category-chip')).toHaveText('Supermarché');
+
+    const { month, year } = currentMonth();
+    const saved = (await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json())
+        .filter(t => ['CB BOULANGERIE PAUL', 'CB RESTAURANT LE PETIT ZINC'].includes(t.label));
+    expect(new Set(saved.map(t => Number(t.category))).size).toBe(1);
+    expect(saved.map(t => [Number(t.pointed), t.category_source])).toEqual([[1, 'manual'], [1, 'manual']]);
+});
+
+test('selects all the transactions shown, then closes the selection (#430)', async ({ adminPage: page }) => {
+    await page.getByRole('button', { name: tr('tagSelect'), exact: true }).click();
+    const bar = page.getByRole('region', { name: tr('tagSelect') });
+    const all = bar.getByRole('button', { name: tr('selectionSelectAll') });
+
+    await all.click();
+    await expect(bar.locator('.tag-selection-count')).toHaveText(tr('tagSelected', { count: 6 }));
+    await expect(page.locator('.transaction-select:checked')).toHaveCount(6);
+    // Once all are ticked, the same button unticks them
+    const none = bar.getByRole('button', { name: tr('selectionUnselectAll') });
+    await expect(none).toHaveAttribute('aria-pressed', 'true');
+    await none.click();
+    await expect(bar.locator('.tag-selection-count')).toHaveText(tr('tagSelected', { count: 0 }));
+    await expect(page.locator('.transaction-select:checked')).toHaveCount(0);
+
+    // Only the ones shown: the filter of the unchecked transactions applied
+    await page.locator('.toggle-unchecked').click();
+    await expect(page.locator('.transaction-item')).toHaveCount(3);
+    await bar.getByRole('button', { name: tr('selectionSelectAll') }).click();
+    await expect(bar.locator('.tag-selection-count')).toHaveText(tr('tagSelected', { count: 3 }));
+
+    // The close button is the last one of the bar, at its far right
+    const close = bar.getByRole('button', { name: tr('selectionClose') });
+    await expect(bar.getByRole('button').last()).toHaveAccessibleName(tr('selectionClose'));
+    const [barBox, closeBox] = [await bar.boundingBox(), await close.boundingBox()];
+    expect(barBox.x + barBox.width - (closeBox.x + closeBox.width)).toBeLessThan(40);
+    await close.click();
+    await expect(bar).toHaveCount(0);
+    await expect(page.locator('.transaction-select')).toHaveCount(0);
 });
 
 test('deletes a transaction from its detail', async ({ adminPage: page, api }) => {
@@ -350,14 +461,26 @@ test('closes the detail modal with Escape', async ({ adminPage: page }) => {
     await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('shows the recurring transactions of the month', async ({ adminPage: page }) => {
-    // Salary and rent: in each of the 3 months of the data set, summed up in their strip
-    const strip = page.getByRole('region', { name: tr('recurringSummary') });
-    await expect(strip.locator('.recurring-strip-title')).toHaveText(tr('recurringCount', { count: 2 }));
-    await expect(strip.locator('.recurring-strip-detail')).toHaveText(tr('recurringCalendarReceived', { count: 2 }));
-    await expect(strip.locator('.recurring-strip-total strong')).toHaveText(euros(2250));
-    await expect(strip.locator('.recurring-strip-total strong')).toHaveClass(/positive/);
-    const toggle = strip.locator('.toggle-recurring');
+test('shows the recurring transactions of the month in a bar folded by default (#465)', async ({ adminPage: page }) => {
+    // Salary and rent: in each of the 3 months of the data set, counted in their bar, inside the list
+    const bar = page.locator('.transactions-container').getByRole('region', { name: tr('recurringSummary') });
+    await expect(bar.locator('.recurring-bar-title')).toHaveText(tr('recurringCount', { count: 2 }));
+    const unfold = bar.getByRole('button', { name: tr('recurringDetails') });
+    await expect(unfold).toHaveAttribute('aria-expanded', 'false');
+    await expect(unfold).toHaveAttribute('aria-controls', 'recurring-bar-details');
+    // Folded: only their number, the filter and the calendar hidden
+    const details = page.locator('#recurring-bar-details');
+    await expect(details).toBeHidden();
+    await expect(bar.getByRole('switch', { name: tr('recurringOnly') })).toHaveCount(0);
+
+    await unfold.click();
+    await expect(unfold).toHaveAttribute('aria-expanded', 'true');
+    await expect(details).toBeVisible();
+    await expect(bar.locator('.recurring-bar-detail')).toHaveText(tr('recurringCalendarReceived', { count: 2 }));
+    await expect(bar.locator('.recurring-bar-total-label')).toHaveText(tr('recurringTotal'));
+    await expect(bar.locator('.recurring-bar-total strong')).toHaveText(euros(2250));
+    await expect(bar.locator('.recurring-bar-total strong')).toHaveClass(/positive/);
+    const toggle = bar.locator('.toggle-recurring');
     await expect(toggle).toContainText(tr('recurringOnly'));
     await expect(row(page, 'PRLV LOYER AGENCE').locator('.recurring-badge')).toBeVisible();
     await expect(row(page, 'CB SUPERMARCHE CASINO').locator('.recurring-badge')).toHaveCount(0);
@@ -369,10 +492,29 @@ test('shows the recurring transactions of the month', async ({ adminPage: page }
 
     await toggle.click();
     await expect(page.locator('.transaction-item')).toHaveCount(6);
+
+    // Unfolded: remembered in this browser
+    await page.reload();
+    await expect(unfold).toHaveAttribute('aria-expanded', 'true');
+    await expect(details).toBeVisible();
+
+    // Folded with the keyboard while filtered: the whole list is back, folded after a reload
+    await toggle.click();
+    await expect(page.locator('.transaction-item')).toHaveCount(2);
+    await unfold.focus();
+    await page.keyboard.press('Enter');
+    await expect(unfold).toHaveAttribute('aria-expanded', 'false');
+    await expect(details).toBeHidden();
+    await expect(page.locator('.transaction-item')).toHaveCount(6);
+    await page.reload();
+    await expect(unfold).toHaveAttribute('aria-expanded', 'false');
+    await expect(details).toBeHidden();
 });
 
 test('shows the recurring transactions of the month in a calendar', async ({ adminPage: page }) => {
-    await page.getByRole('region', { name: tr('recurringSummary') }).getByRole('button', { name: tr('recurringCalendarButton') }).click();
+    const bar = page.getByRole('region', { name: tr('recurringSummary') });
+    await bar.getByRole('button', { name: tr('recurringDetails') }).click();
+    await bar.getByRole('button', { name: tr('recurringCalendarButton') }).click();
     const modal = page.locator('.modal-recurring-calendar');
     await expect(modal).toBeVisible();
 
@@ -520,4 +662,45 @@ test('explains why a file cannot be imported', async ({ adminPage: page }) => {
     const modal = page.getByRole('dialog', { name: tr('importTitle') });
     await modal.locator('input[type="file"]').setInputFiles({ name: 'notes.csv', mimeType: 'text/csv', buffer: Buffer.from('a;b\n1;2\n') });
     await expect(modal.getByRole('alert')).toContainText('Columns not found');
+});
+
+test('the category list shows first the categories of the direction of the transaction (#498)', async ({ adminPage: page }) => {
+    const groups = scope => scope.locator('.category-picker-group-title');
+
+    // An expense: expenses, then off-budget (transfers), then incomes
+    await row(page, 'CB BOULANGERIE PAUL').locator('.category-picker-button').click();
+    await expect(groups(row(page, 'CB BOULANGERIE PAUL'))).toHaveText([tr('categoryTypes_DEBIT'), tr('categoryTypes_HORS-BUDGET'), tr('categoryTypes_CREDIT')]);
+    await page.keyboard.press('Escape');
+
+    // An income: incomes first; the expenses are still offered (a refund)
+    await row(page, 'VIR SALAIRE ACME').getByRole('button', { name: new RegExp(tr('transactionDetail')) }).click();
+    const modal = page.getByRole('dialog', { name: tr('transactionDetail') });
+    await modal.locator('.category-picker-button').click();
+    await expect(groups(modal)).toHaveText([tr('categoryTypes_CREDIT'), tr('categoryTypes_HORS-BUDGET'), tr('categoryTypes_DEBIT')]);
+    await expect(modal.locator('.category-picker-option').first()).toContainText('Salaire');
+});
+
+test('imports a statement on the account chosen (#485)', async ({ adminPage: page, api }) => {
+    const accounts = await (await api.get('/api/bank')).json();
+    const account = accounts.find(a => a.account_number === 'DEMO0000001');
+    const date = new Date();
+    date.setDate(8);
+    const csv = 'Date;Libellé;Montant\n' + `${date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })};CB CORDONNERIE;-14,00\n`;
+
+    await page.getByRole('button', { name: tr('importButton') }).click();
+    const modal = page.getByRole('dialog', { name: tr('importTitle') });
+    await modal.locator('input[type="file"]').setInputFiles({ name: 'releve.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+
+    // No account number in the file: none by default, any account of the household offered
+    const select = modal.getByLabel(tr('importAccountLabel'));
+    await expect(select.locator('option').first()).toHaveText(tr('importAccountNone'));
+    await expect(select).toHaveValue('');
+    await select.selectOption(String(account.id));
+    await modal.getByRole('button', { name: tr('importConfirm', { count: 1 }) }).click();
+    await expect(modal).toHaveCount(0);
+
+    const { month, year } = currentMonth();
+    const imported = (await (await api.get(`/api/transaction?month=${month}&year=${year}`)).json()).find(t => t.label === 'CB CORDONNERIE');
+    expect(imported.bank_name).toBe('bnp');
+    expect(imported.account_number).toBe('DEMO0000001');
 });

@@ -69,7 +69,8 @@ final class System {
 
     /**
      * Health of the instance, for the Docker HEALTHCHECK, supervision tools and the
-     * mobile app (no authentication, no data): the database answers.
+     * mobile app (no authentication, no data): the database answers. Polled every few
+     * minutes: its successful calls are logged at the DEBUG level only (quiet).
      *
      * @return array<string, string|bool|null> status (ok), version (of Carbure), database (ok), schema (version),
      *               min_mobile_version (lowest version of the mobile app supported, MobileApp::MIN_VERSION),
@@ -77,7 +78,7 @@ final class System {
      *               demo (true, only on a demonstration instance: setting demo, Docker image carbure:demo)
      * @throws Exception If the database does not answer (HTTP 500)
      */
-    #[ApiRoute('/health', method: 'GET', public: true)]
+    #[ApiRoute('/health', method: 'GET', public: true, quiet: true)]
     public static function health(): array
     {
         Db::query("SELECT 1");

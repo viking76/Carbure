@@ -114,8 +114,10 @@ final class Transaction {
 - Request keys are passed **by name**: parameter names are part
   of the API contract.
 - `public: true` disables the JWT check; `stream: true` produces an SSE response;
-  `raw: true` returns the text returned by the method as is (MCP server). A unit
-  test checks the list of public routes.
+  `raw: true` returns the text returned by the method as is (MCP server);
+  `quiet: true` writes the successful calls at the `debug` level only (`GET /health`,
+  polled by the healthchecks; its errors keep their level). A unit test checks the list
+  of public routes and of `quiet` routes.
 - Administration route: declare it `admin: true` in its attribute; `Webservice` rejects it
   (`403`) for other users before calling the method. `User::requireAdmin()` is only
   for conditional checks inside the method (e.g. `PUT /user` on another

@@ -96,15 +96,15 @@ premier plan ; ensuite, l'en-tête de chaque réponse suffit (voir ci-dessous).
 
 | Type | Incrémenté par |
 |---|---|
-| `transactions` | synchronisation (transaction nouvelle ou modifiée, catégorie trouvée), `POST /transaction/import`, `POST /transaction`, `PUT /transaction`, `PUT /transaction/category`, `PUT /transaction/pointed`, `PUT /transaction/split`, `PUT /transaction/tags`, `DELETE /tag`, `DELETE /transaction`, règles appliquées à l'historique, `DELETE /category` |
+| `transactions` | synchronisation (transaction nouvelle ou modifiée, catégorie trouvée), `POST /transaction/import`, `POST /transaction`, `PUT /transaction`, `PUT /transaction/category`, `PUT /transaction/categories`, `PUT /transaction/comment`, `PUT /transaction/date`, `PUT /transaction/pointed`, `PUT /transaction/split`, `PUT /transaction/tags`, `DELETE /tag`, `DELETE /transaction`, règles appliquées à l'historique, `DELETE /category` |
 | `accounts` | synchronisation (compte en erreur, réparé ou autre erreur), `POST`/`PUT`/`DELETE /bank`, `/bank/backend` |
 | `categories` | `POST`/`PUT`/`DELETE /category`, `/category/keyword`, `PUT /category/keyword/settings` |
 | `budgets` | `POST /budget`, `POST /budget/copy`, `DELETE /category` |
-| `insights` | `POST`/`PUT`/`DELETE /insight`, `PUT /insight/enabled` |
-| `settings` | `PUT /system/config` |
+| `insights` | `POST`/`PUT`/`DELETE /insight`, `PUT /insight/enabled`, `PUT /insight/order` |
+| `settings` | `PUT /system/config`, `PUT /budget/trends/charts` |
 | `tags` | `POST`/`PUT`/`DELETE /tag` |
 
-`POST /backup/import` incrémente tous les types. Les insights et les tendances sont
+`POST /backup/import` incrémente tous les types ; `POST /purge` tous sauf `accounts` et `settings`. Les insights et les tendances sont
 calculés à partir des transactions et des budgets : un client les recharge quand l'un de
 ces types bouge.
 
@@ -591,11 +591,13 @@ choisis (voir [`GET /user/notifications`](#get-usernotifications)).
 |---|---|---|
 | `month`, `year` | non | Mois des transactions (mois courant par défaut) |
 | `category` | non | Limite aux transactions de cette catégorie **et de ses sous-catégories** |
+| `own` | non | Avec `category` : `1` limite aux transactions rangées sur la catégorie elle-même, sans ses sous-catégories |
 
 Les transactions sont triées par date réelle décroissante. Champs : `id`, `uuid`,
 `imported`, `date`, `rdate`, `type`, `label`, `category`, `amount`, `card`, `bank_name`
 et `account_number` (compte d'origine ; `null` pour les transactions antérieures à leur
-ajout), `pointed`, `user`.
+ajout), `pointed`, `user`, `comment` (commentaire libre du foyer, `null` sans commentaire ;
+absent tant que la migration `2026-11-19_transaction_comment` n'est pas appliquée).
 
 ```bash
 curl "https://exemple.fr/api/transaction?month=9&year=2026&category=1" -H "Authorization: Bearer $TOKEN"
@@ -640,8 +642,9 @@ faut au moins un (`400 search_too_short` sinon).
 
 | Paramètre | Requis | Description |
 |---|---|---|
-| `query` | non | Texte recherché dans le libellé (2 caractères minimum, insensible à la casse) ; `#nom` : les transactions du tag |
+| `query` | non | Texte recherché dans le libellé ou le commentaire (2 caractères minimum, insensible à la casse) ; `#nom` : les transactions du tag |
 | `min`, `max` | non | Montant minimal et maximal, sans signe : `min=50` trouve une dépense de -50 comme un revenu de 50 (`400 search_amount_invalid` si négatif ou `min` > `max`) |
+| `in` | non | `label` : le texte de `query` dans le libellé seulement, pas dans le commentaire (transactions similaires à une autre) |
 | `kind` | non | `debit` : dépenses seules, `credit` : revenus seuls |
 | `categories` | non | Ids de catégories séparés par des virgules ; une catégorie inclut ses sous-catégories |
 | `accounts` | non | Comptes séparés par des virgules, sous la forme `bankId` de `GET /bank` (`numéro@banque`) |
@@ -692,7 +695,9 @@ transactions), `422` (format non reconnu, colonnes CSV introuvables, XML invalid
 ### `POST /transaction/import`
 
 Mêmes paramètres, plus `selected` (facultatif) : les `index` des lignes à importer ; par
-défaut, les lignes `new`. Les lignes `known` ne sont jamais importées. Les transactions
+défaut, les lignes `new`. `account` (facultatif) : l'`id` d'un compte de `GET /bank`, auquel
+les transactions sont rattachées (404 `account_not_found` s'il n'existe pas) ; par défaut,
+le numéro de compte lu dans le fichier. Les lignes `known` ne sont jamais importées. Les transactions
 appartiennent à l'utilisateur connecté, puis les règles de catégorisation s'appliquent
 quelle que soit leur date. Renvoie `imported`, `categorized`, `from` et `to` (période des
 lignes choisies).
@@ -709,6 +714,19 @@ curl -X POST https://exemple.fr/api/transaction/import -H "Authorization: Bearer
 pour ne pas la pointer). La catégorie est choisie à la main (`category_source` `manual`) :
 les règles ne la changent plus.
 
+### `PUT /transaction/categories`
+
+`ids` (1 à 500 transactions), `category` : affecte la même catégorie à toutes, en une fois
+(toutes ou aucune ; `400 tag_selection_limit`, `404 category_not_found`), et les pointe avec
+les parts des transactions réparties (`autoPointed=false` pour ne pas les pointer). Comme
+pour une seule, la catégorie est choisie à la main (`category_source` `manual`). Renvoie
+`{updated}` : le nombre de transactions dont la catégorie a changé.
+
+```bash
+curl -X PUT https://exemple.fr/api/transaction/categories -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"ids":[42,43],"category":5}'
+```
+
 ### `PUT /transaction/pointed`
 
 `id`, `pointed` (booléen, défaut `true`) : marque la transaction comme vérifiée ou non.
@@ -718,14 +736,50 @@ curl -X PUT https://exemple.fr/api/transaction/pointed -H "Authorization: Bearer
   -H 'Content-Type: application/json' -d '{"id":42,"pointed":false}'
 ```
 
+### `PUT /transaction/comment`
+
+`id`, `comment` : commentaire libre de la transaction (synchronisée, importée, saisie à la
+main ou part d'une transaction répartie), visible par tout le foyer. 500 caractères au plus
+(`400 transaction_comment_length`, `params.max`), espaces de début et de fin retirés ; `""`
+(ou `comment` absent) le supprime. La synchronisation et l'import ne le modifient jamais ;
+les parts d'une transaction répartie ont chacune le leur. Renvoie la transaction de l'`id`.
+`404 transaction_not_found` ; `409 transaction_comment_migration` si la migration
+`2026-11-19_transaction_comment` n'est pas encore appliquée.
+
+```bash
+curl -X PUT https://exemple.fr/api/transaction/comment -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"id":42,"comment":"Remboursé par Paul en juin"}'
+```
+
+### `PUT /transaction/date`
+
+`id`, `date` (`AAAA-MM-JJ`) : change la date à laquelle la transaction est comptée (son
+mois, pour les totaux et les budgets), synchronisée ou non. La date réelle de la banque
+(`rdate`) et l'UUID ne changent pas : la synchronisation et l'import la reconnaissent et
+gardent la date choisie. Les parts d'une transaction répartie suivent sa date (l'`id` d'une
+part déplace sa transaction avec toutes ses parts). Renvoie la transaction de l'`id`.
+`400 transaction_date_invalid`, `404 transaction_not_found`.
+
+```bash
+curl -X PUT https://exemple.fr/api/transaction/date -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"id":42,"date":"2026-09-30"}'
+```
+
 ### `POST /transaction`
 
-Saisit une transaction à la main sur un compte manuel : `account` (`id` du compte), `date`
-(`AAAA-MM-JJ`), `label`, `amount` (négatif pour une dépense) et `category` (facultative :
-sinon celle des règles, sinon aucune). Elle est pointée, de type `8` (dépense), avec
-`bank_name` `manual`. Renvoie la transaction. Erreurs `400` : `account_not_manual`,
-`transaction_date_invalid`, `transaction_label_invalid`, `transaction_amount_invalid` ;
-`404` si le compte ou la catégorie n'existe pas.
+Saisit une transaction à la main sur un compte du foyer, manuel ou synchronisé : `account`
+(`id` du compte, voir `GET /bank`), `date` (`AAAA-MM-JJ`), `label`, `amount` (négatif pour
+une dépense), `category` (facultative : sinon celle des règles, sinon aucune) et `comment`
+(facultatif, voir `PUT /transaction/comment` ; vérifié avant l'enregistrement : refusé, rien
+n'est saisi). Elle est
+pointée, de type `8` (dépense), avec le `bank_name` et l'`account_number` du compte ; son
+`uuid` commence par `manual` (jamais celui d'une banque), ce qui la distingue d'une
+transaction synchronisée : la synchronisation ne l'écrase pas, mais si la banque envoie plus
+tard la même transaction, elle s'ajoute en doublon. Renvoie la transaction. Erreurs `400` :
+`transaction_date_invalid`, `transaction_label_invalid`, `transaction_amount_invalid`,
+`transaction_comment_length` ; `404` si le compte ou la catégorie n'existe pas ;
+`409 transaction_comment_migration` pour un commentaire avant la migration
+`2026-11-19_transaction_comment`.
 
 ```bash
 curl -X POST https://exemple.fr/api/transaction -H "Authorization: Bearer $TOKEN" \
@@ -734,8 +788,10 @@ curl -X POST https://exemple.fr/api/transaction -H "Authorization: Bearer $TOKEN
 
 ### `PUT /transaction`
 
-Modifie une transaction saisie à la main : `id` et les valeurs à changer parmi `date`,
-`label` et `amount`. `400 transaction_not_manual` pour une transaction d'une banque ou une
+Modifie une transaction saisie à la main (sur un compte manuel, ou `uuid` commençant par
+`manual`) : `id` et les valeurs à changer parmi `date`,
+`label`, `amount` et `comment` (`""` le supprime ; sans `comment`, applications mobiles, le
+commentaire existant est conservé). `400 transaction_not_manual` pour une transaction d'une banque ou une
 part de répartition, `400 transaction_split_amount` pour le montant d'une transaction
 répartie (annuler d'abord la répartition). Renvoie la transaction.
 
@@ -776,11 +832,19 @@ curl -X DELETE "https://exemple.fr/api/transaction?id=42" -H "Authorization: Bea
 ### `GET /budget`
 
 `month`, `year`, `category` (catégorie parente, `0` = racine). Pour chaque catégorie :
-`id`, `name`, `type`, `icon`, `color`, `budget`, `consummed` (somme absolue des
-transactions de la catégorie et de ses sous-catégories), `progress` (%), `children`
+`id`, `name`, `type`, `icon`, `color`, `budget`, `note` (note du budget du mois, `null` sans
+note), `consummed` (transactions de la catégorie et de ses
+sous-catégories, dans le sens de son type : dépense nette d'une catégorie `DEBIT`, revenu
+net d'une catégorie `CREDIT`, jamais négatif — un remboursement plus grand que les dépenses
+du mois donne 0 ; valeur absolue pour `HORS-BUDGET`), `progress` (%), `children`
 (nombre de sous-catégories), `children_budget` (somme de leurs budgets) et `budget_mode` :
 `own` (montant défini pour la catégorie) ou `children` (catégorie avec sous-catégories et
 sans montant défini : `budget` est alors la somme des budgets des sous-catégories).
+
+Avec `own=1` et une catégorie parente, la liste ajoute un élément pour les transactions
+rangées sur la catégorie parente elle-même plutôt que sur une sous-catégorie : `own: true`,
+`id` de la parente, sans budget (`budget` à 0), avec ce qu'elles consomment. Il n'apparaît
+que si le mois en a ; sans `own`, la réponse est inchangée.
 
 ### `GET /budget/flow`
 
@@ -814,22 +878,35 @@ Renvoie les colonnes de `bank_transaction` et `top` (catégorie de premier nivea
 
 `category`, `amount` (requis), `month`, `year` (mois courant par défaut) : crée ou met à
 jour le budget de la catégorie pour le mois. Pour une catégorie avec sous-catégories, le
-montant remplace la somme de leurs budgets ; `0` revient à cette somme.
+montant remplace la somme de leurs budgets ; `0` revient à cette somme. `note` (facultatif) :
+pense-bête de ce que couvre le budget, 200 caractères au plus (`400`,
+`budget_note_length` au-delà), espaces de début et de fin retirés ; `""` la supprime, et
+sans `note` (applications mobiles) la note existante est conservée.
+
+### `GET /budget/copy`
+
+`month`, `year` (mois cible, mois courant par défaut) : indique si la recopie du mois
+précédent est proposée, en lecture seule. Renvoie `month`, `source` (mois précédent,
+`AAAA-MM`), `defined` (le mois cible a au moins un budget), `source_defined` (le mois
+précédent en a un) et `copyable` (`true` quand le mois cible n'a aucun budget et que le
+mois précédent en a). Un budget à `0` (somme des sous-catégories) ne compte pas comme
+défini. Le portail n'affiche le bouton de recopie que si `copyable` vaut `true`.
 
 ### `POST /budget/copy`
 
 `month`, `year` (mois cible, mois courant par défaut), `overwrite` (`false` par défaut) :
 recopie les budgets du mois précédent vers le mois cible. Sans `overwrite`, seules les
 catégories sans budget dans le mois cible sont recopiées ; avec `overwrite`, tous les
-budgets du mois précédent remplacent ceux du mois cible. Renvoie `month`, `source` (mois
+budgets du mois précédent remplacent ceux du mois cible. Les notes sont recopiées avec leur
+budget. Renvoie `month`, `source` (mois
 précédent, `AAAA-MM`), `copied` (budgets écrits) et `overwrite`.
 
 ### `GET /budget/trends`
 
 | Paramètre | Requis | Description |
 |---|---|---|
-| `months` | non | Nombre de mois (1 à 60, défaut 24) |
-| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (défaut 0). Sert aux comparaisons : `offset=months` pour la période précédente, `offset=12` pour la même période l'an dernier |
+| `months` | non | Nombre de mois (1 à 240, défaut 24) |
+| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (0 à 240, défaut 0). Sert aux comparaisons : `offset=months` pour la période précédente, `offset=12` pour la même période l'an dernier |
 
 Renvoie un élément par mois (du plus ancien au plus récent, mois vides inclus) :
 
@@ -849,6 +926,84 @@ curl "https://exemple.fr/api/budget/trends?months=6&offset=12" -H "Authorization
 ```json
 [{ "month": "2025-05", "debit": 2130.37, "credit": 5114, "offBudget": -500, "planned": 2330, "savings": 2983.63 }]
 ```
+
+### `GET /budget/trends/series`
+
+Évolution mensuelle d'une catégorie ou d'un insight, pour les graphiques personnalisés de
+l'onglet Tendances.
+
+| Paramètre | Requis | Description |
+|---|---|---|
+| `type` | oui | `category` ou `insight` |
+| `id` | oui | Identifiant de la catégorie ou de l'insight (entier positif) |
+| `months` | non | Nombre de mois (1 à 240, défaut 24) |
+| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (0 à 240, défaut 0) |
+
+Renvoie un élément par mois (du plus ancien au plus récent, mois vides à `0`) :
+
+| Champ | Description |
+|---|---|
+| `month` | `AAAA-MM` |
+| `amount` | Catégorie : total de ses transactions et de celles de ses sous-catégories, positif pour une dépense d'une catégorie `DEBIT` (un remboursement le diminue), brut pour les autres types. Insight : valeur de sa requête pour le mois (`0` en cas d'échec) |
+| `planned` | Catégorie : budget du mois comme dans l'onglet Budget (montant défini, ou somme des sous-catégories), `null` sans budget. Insight : toujours `null` |
+
+`400` pour un type ou un identifiant invalide, `404` pour une catégorie ou un insight inconnu.
+
+```bash
+curl "https://exemple.fr/api/budget/trends/series?type=category&id=1&months=36" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+[{ "month": "2026-09", "amount": 412.5, "planned": 450 }, { "month": "2026-10", "amount": 127.4, "planned": null }]
+```
+
+### `GET /budget/trends/categories`
+
+Évolution mensuelle de toutes les catégories d'un type, pour les comparer sur un même
+graphique (carte « Par catégorie » de l'onglet Tendances).
+
+| Paramètre | Requis | Description |
+|---|---|---|
+| `type` | non | `DEBIT` (défaut), `CREDIT` ou `HORS-BUDGET` |
+| `level` | non | `top` (défaut) : catégories de premier niveau, sous-catégories comptées dans leur parent (le type est celui du parent) ; `sub` : chaque catégorie séparément |
+| `months` | non | Nombre de mois (1 à 240, défaut 24) |
+| `offset` | non | Nombre de mois entre le mois courant et le dernier mois de la période (0 à 240, défaut 0) |
+
+Renvoie `months` (les mois `AAAA-MM` de la période, du plus ancien au plus récent) et
+`categories` : `id`, `name`, `icon`, `color`, `parent_category`, `total` de la période et
+`amounts` (un montant par mois de `months`, mois vides à `0`). Les montants sont positifs
+pour les dépenses d'une catégorie `DEBIT` (un remboursement les diminue), bruts pour les
+autres types. Seules les catégories ayant un montant sur la période sont renvoyées, de la
+plus grosse à la plus petite ; la catégorie `0` (non catégorisé) est exclue.
+
+`400` pour un type ou un niveau inconnu.
+
+```bash
+curl "https://exemple.fr/api/budget/trends/categories?type=DEBIT&level=top&months=3" -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{
+  "months": ["2026-08", "2026-09", "2026-10"],
+  "categories": [
+    { "id": 4, "name": "Logement", "icon": "home", "color": "blue", "parent_category": 0, "total": 2850, "amounts": [950, 950, 950] },
+    { "id": 1, "name": "Alimentation", "icon": "restaurant", "color": "green", "parent_category": 0, "total": 247.4, "amounts": [0, 120, 127.4] }
+  ]
+}
+```
+
+### `GET /budget/trends/charts`
+
+Graphiques personnalisés de l'onglet Tendances, partagés par le foyer, dans l'ordre
+d'affichage : `type`, `id`, `name`, `icon`, `color` de la catégorie ou de l'insight. Les
+graphiques dont la catégorie ou l'insight a été supprimé sont ignorés.
+
+### `PUT /budget/trends/charts` (administrateur)
+
+Remplace la liste. Corps : `{"charts": [{"type": "category", "id": 1}, {"type": "insight", "id": 2}]}`
+(12 graphiques au plus, sans doublon, catégories et insights existants ; sinon `400`). Renvoie
+la liste enregistrée, comme `GET`. Elle est stockée dans le réglage `trend_charts`
+(ex. `["c1","i2"]`), sans migration.
 
 ## Tags
 
@@ -904,6 +1059,18 @@ Les insights masqués, proposés par le bouton **+** de l'écran Insights :
 `id`, `enabled` (booléen, `true` par défaut) : affiche ou masque un insight pour tout le
 foyer (tout utilisateur). Renvoie `{"id", "enabled"}` ; `404` (`insight_not_found`) si
 l'insight est inconnu.
+
+### `PUT /insight/order`
+
+`ids` (liste d'identifiants d'insights) : ordre des cartes de l'écran Insights pour tout le
+foyer (tout utilisateur), choisi par glisser-déposer dans le portail. Les insights listés
+prennent les places 1, 2, 3… dans cet ordre ; les autres (masqués, ou créés entre-temps)
+passent après eux, dans leur ordre. Renvoie les identifiants des insights affichés, dans
+leur ordre. `400` (`insight_order_invalid`) si un identifiant n'est pas un entier positif
+ou est répété, `404` (`insight_not_found`) si un insight est inconnu, `409`
+(`insight_migration_pending`) avant la migration `2026-11-07_insight_position`.
+`GET /budget/insights`, `GET /insight` et `GET /insight/disabled` suivent cet ordre (par
+identifiant tant qu'aucun ordre n'est choisi) ; un nouvel insight se place à la fin.
 
 ### `GET /insight/alert`
 
@@ -973,12 +1140,19 @@ transactions passent en catégorie 0 et les budgets et règles de la catégorie 
 
 ### `GET /category/keyword`
 
-Règles de catégorisation automatique : `id`, `keyword`, `category`, `category_name`.
+Règles de catégorisation automatique : `id`, `keyword`, `category`, `category_name`,
+`notify`, `amount` (montant en valeur absolue, `null` : tous les montants).
 
 ### `POST /category/keyword` — administrateur
 
 `keyword` (1 à 60 caractères, enregistré en majuscules), `category` : ajoute une règle.
-Erreurs : 400 mot-clé vide, 404 catégorie inconnue, 409 mot-clé déjà existant.
+`amount` (facultatif, `"10"`, `"10,50"`, `-10`…) : la règle ne reconnaît que les transactions
+de ce montant en valeur absolue, au centime près (une dépense de -10,00 comme un revenu
+de 10,00), et l'emporte sur les règles sans montant ; vide ou absent : tous les montants.
+La réponse contient `amount` (`"10.00"` ou `null`).
+Erreurs : 400 mot-clé vide ou montant invalide (`rule_amount_invalid`), 404 catégorie
+inconnue, 409 mot-clé déjà existant sans montant (`keyword_exists`) ou avec ce montant
+(`rule_amount_exists`).
 
 ```bash
 curl -X POST https://exemple.fr/api/category/keyword -H "Authorization: Bearer $TOKEN" \
@@ -987,14 +1161,17 @@ curl -X POST https://exemple.fr/api/category/keyword -H "Authorization: Bearer $
 
 ### `PUT /category/keyword` — administrateur
 
-`id`, `keyword`, `category`, `notify` : modifie une règle (`409` si le mot-clé existe déjà).
+`id`, `keyword`, `category`, `notify`, `amount` : modifie une règle (`409` si une règle a
+déjà ce mot-clé et ce montant). `amount` absent ou `null` : le montant de la règle est
+conservé (les applications qui ne l'envoient pas ne l'effacent pas) ; `""` : tous les montants.
 `POST /category/keyword` accepte aussi `notify` : chaque nouvelle transaction synchronisée
 qui contient le mot-clé envoie alors une notification à tous les utilisateurs du foyer.
 
 ### `GET /category/keyword/count?id=` — administrateur
 
-Nombre de transactions dont le libellé contient le mot-clé (`matching`), dont celles déjà
-dans la catégorie de la règle (`categorized`).
+Nombre de transactions reconnues par la règle (`matching` : libellé contenant le mot-clé,
+de son montant si elle en a un, sans celles d'une règle avec un montant sinon), dont celles
+déjà dans la catégorie de la règle (`categorized`).
 
 ### `DELETE /category/keyword` — administrateur
 
@@ -1161,6 +1338,28 @@ pas importées.
 Le portail refuse un fichier d'une version du format plus récente que la sienne. Réponse : `{"imported": {"rules": 1}}`. Corps limité à 32 Mo
 par nginx (2 Mo pour les autres routes).
 
+## Purge
+
+Vide des données de la sauvegarde (mêmes noms) pour repartir de zéro. Acceptée **depuis
+le réseau local uniquement** : toutes les adresses de la requête (pair, `X-Forwarded-For`,
+`X-Real-IP`, `Forwarded`) doivent être privées ou réservées.
+
+### `GET /purge` — administrateur
+
+`{"local": true, "datasets": [{"name":"categories","count":11,"dependents":["rules","budgets","transactions","transaction_tags"]}, …]}` :
+`local` indique si la purge est acceptée depuis cette adresse, `count` le nombre de lignes
+supprimées (sans la catégorie 0 pour `categories`), `dependents` les données purgées avec
+elle (elles y renvoient).
+
+### `POST /purge` — administrateur
+
+Corps : `{"datasets": ["transactions", "transaction_tags"]}`. Supprime toutes les lignes de
+chaque donnée en une transaction, les contraintes de la base appliquées (alertes de budget
+des catégories, catégorie d'alerte des utilisateurs…). La catégorie 0 est conservée.
+`403` (`purge_not_local`) depuis Internet ; `400` sans donnée, pour un nom inconnu, ou
+(`purge_dependents`) si une donnée qui dépend d'une donnée choisie manque : rien n'est
+supprimé. Réponse : `{"purged": {"transactions": 120, "transaction_tags": 4}}`.
+
 ## Système
 
 ### `GET /health` — publique
@@ -1240,7 +1439,7 @@ Le fichier de configuration, par section : `file` (chemin dans l'instance), `wri
 
 `values` : les nouvelles valeurs par clé, uniquement parmi les réglages modifiables
 (`log_level`, `log_retention_days`, `savings_category`, `public_url`, `currency`, `next_month_day`, `woob_transactions`, `woob_logging`,
-`woob_debug`, `woob_auto_update`, `woob_2fa_wait`, `woob_2fa_retries`, `push_api_key`, `smtp_host`, `smtp_port`, `smtp_encryption`, `smtp_auth`,
+`woob_debug`, `woob_auto_update`, `woob_relabel`, `woob_2fa_wait`, `woob_2fa_retries`, `push_api_key`, `smtp_host`, `smtp_port`, `smtp_encryption`, `smtp_auth`,
 `smtp_username`, `smtp_password`, `smtp_from`, `smtp_from_name`). Toutes les valeurs sont vérifiées avant d'écrire quoi que
 ce soit (`400` sinon, fichier inchangé) ; l'ancien fichier est gardé en `.bak`. Renvoie la
 configuration comme `GET`.

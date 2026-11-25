@@ -140,6 +140,42 @@ class LoggerTest extends TestCase
         }
     }
 
+    public function testTheRoutineEntriesOfAQuietRequestAreDebug()
+    {
+        $code = http_response_code();
+        try {
+            // A route that a user calls: INFO
+            Logger::setQuiet(false);
+            $message = 'Routine message ' . uniqid();
+            Logger::routine($message);
+            Logger::flush();
+            $this->assertSame('INFO', $this->lastEntry($message)['level']);
+
+            // A quiet request (GET /health): the call and the access line of a success are DEBUG
+            Logger::setQuiet(true);
+            $message = 'Quiet message ' . uniqid();
+            Logger::routine($message);
+            $_SERVER['REQUEST_TIME_FLOAT'] = microtime(true) - 0.25;
+            Logger::access();
+            Logger::flush();
+            $this->assertSame('DEBUG', $this->lastEntry($message)['level']);
+            $this->assertSame('DEBUG', $this->lastEntry('"duration_ms"')['level']);
+
+            // Its errors keep their level
+            Logger::warn($message . ' warning');
+            Logger::flush();
+            $this->assertSame('WARNING', $this->lastEntry("$message warning")['level']);
+            http_response_code(500);
+            Logger::access();
+            Logger::flush();
+            $this->assertSame('ERROR', $this->lastEntry('"duration_ms"')['level']);
+            $this->assertSame(500, $this->lastEntry('"duration_ms"')['context']['status']);
+        } finally {
+            Logger::setQuiet(false);
+            http_response_code($code ?: 200);
+        }
+    }
+
     public function testEmailsAreMasked()
     {
         $this->assertSame('j***@example.org', Logger::maskEmail('jane.doe@example.org'));

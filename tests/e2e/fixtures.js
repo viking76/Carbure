@@ -187,6 +187,26 @@ function currentMonth(ago = 0) {
 }
 
 /**
+ * Budgets set through the API so that the copy of the previous month is offered on the
+ * current month: its budgets of seed.php (Supermarché, Restaurant, Logement) put back to 0
+ * (not a defined budget), and the previous month given the ones of the seed
+ * @param {import('@playwright/test').APIRequestContext} api
+ * @param {Array<[number, number]>} previous - [category, amount] of the previous month
+ */
+async function offerBudgetCopy(api, previous = [[2, 300], [3, 100], [4, 1000]]) {
+    const budgets = [
+        ...[2, 3, 4].map(category => ({ category, amount: 0, ...currentMonth() })),
+        ...previous.map(([category, amount]) => ({ category, amount, ...currentMonth(1) })),
+    ];
+    for (const data of budgets) {
+        const response = await api.post('/api/budget', { data });
+        if (!response.ok()) {
+            throw new Error(`POST /api/budget failed (${response.status()})`);
+        }
+    }
+}
+
+/**
  * Text to match literally in a regular expression (every special character escaped)
  * @param {string} text
  * @returns {string}
@@ -243,4 +263,4 @@ async function chooseLanguage(page, from, to) {
     await base.expect(page.locator('.tabs').getByRole('button', { name: tr('tabTransactions', {}, to), exact: true })).toBeVisible();
 }
 
-module.exports = { test, expect: base.expect, USERS, openTab, clickMainTab, tr, pickCategory, euros, currentMonth, escapeRegExp, woobFile, trustWoobRepository, chooseLanguage, asDemoInstance };
+module.exports = { test, expect: base.expect, USERS, openTab, clickMainTab, tr, pickCategory, euros, currentMonth, offerBudgetCopy, escapeRegExp, woobFile, trustWoobRepository, chooseLanguage, asDemoInstance };

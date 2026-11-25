@@ -82,7 +82,29 @@ from the Internet (see [Synology](synology.md), step 8).
 | `spending_by_category` | Total and number of transactions per category over a period (`YYYY-MM`) |
 | `get_budget` | Spent and planned budget per category for a month |
 | `get_trends` | Debit, credit, off-budget, planned budget and savings month by month |
+| `spending_by_month` | Expenses, income and balance of each month of an explicit period (`from`, `to`: `YYYY-MM`), with the total, the monthly average and the month that spent the most; categories kept (`category_ids`) or left out (`exclude_category_ids`), sub-categories included. An unknown id is refused with the list of the valid ids. Off-budget left out, as in `get_trends` |
+| `recurring_transactions` | Recurring series of the detection of the portal still running at the end of the period: usual day, average and last amount, amount of each month and its changes (a price increase and its month) |
+| `duplicate_transactions` | Possible duplicates: transactions of the same account, day, label and amount (sometimes two real identical payments) |
+| `one_off_transactions` | Transactions whose label (without its numbers) appears only once in the period, largest first: one-off purchases, yearly payments (`kind`, `limit`) |
 | `list_rules` | Automatic categorization rules |
+| `get_insight_guide` | Everything needed to write an insight: rules of the query, readable tables and columns, common expressions, colors, examples and the insights already defined (their query for an administrator) |
+| `check_insight_query` | Checks an insight query with the rules of the portal and runs it read-only on a month and up to 5 months before it (administrators): its amount per month, or the error to fix. Nothing is saved |
+
+## Proposing an insight in natural language { #proposer-un-insight }
+
+The agent can turn a need expressed in natural language ("how much do I spend at
+restaurants at the weekend?") into an [insight](insights.md) ready to add: name, color,
+icon and checked SQL query. For this the server offers the **prompt** `propose_insight`
+(argument `need`, the need), which agents show as a command (in Claude Code:
+`/mcp__carbure__propose_insight`). It asks the agent to read `get_insight_guide` and the
+categories, write the query, check it with `check_insight_query` on the last three months
+and make sure the amounts are plausible. Without the prompt, just ask the agent to propose
+an insight: its instructions point it to these tools.
+
+The server stays **read-only**: the agent proposes, an **administrator** adds the insight
+in the Insights tab (**+** button, then **Create an insight**), where the query is checked
+again. `check_insight_query` is for administrators only, like the check of the portal: with
+the token of another user, the agent proposes a query without being able to run it.
 
 ## Technical details { #details-techniques }
 

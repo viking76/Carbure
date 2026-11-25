@@ -240,4 +240,107 @@ class CategoryTest extends DatabaseTestCase
         $this->assertEquals(3, Category::find('PRLV SEPA EDF '));
         $this->assertNull(Category::find('UNKNOWN'));
     }
+    public function testRuleWithAmount()
+    {
+        Db::execute("INSERT INTO bank_transaction (uuid, date, rdate, type, label, category, amount, card, pointed, user) VALUES
+            ('p1', ?, ?, 7, 'PAYPAL EUROPE', 0, -10.00, '', 0, 1),
+            ('p2', ?, ?, 7, 'PAYPAL EUROPE', 0, -42.50, '', 0, 1),
+            ('p3', ?, ?, 1, 'PAYPAL REMBOURSEMENT', 0, 10.00, '', 0, 1)", "ssssss",
+            $this->day(1), $this->day(1), $this->day(2), $this->day(2), $this->day(3), $this->day(3));
+        $category = fn($uuid) => (int)Db::queryOne("SELECT category FROM bank_transaction WHERE uuid=?", "s", $uuid)['category'];
+
+        // Without amount: every PAYPAL transaction
+        $any = Category::createKeyword('paypal', 1);
+        $this->assertNull($any['amount']);
+        $this->assertSame(3, $any['applied']);
+
+        // Same keyword with an amount (absolute value, comma accepted): only the transactions of 10.00,
+        // expense and income; it wins over the rule without amount
+        $ten = Category::createKeyword('PAYPAL', 3, false, '-10,00');
+        $this->assertSame('10.00', $ten['amount']);
+        $this->assertSame(2, $ten['applied']);
+        $this->assertSame([3, 1, 3], [$category('p1'), $category('p2'), $category('p3')]);
+        $this->assertSame(['matching' => 2, 'categorized' => 2], Category::countKeyword($ten['id']));
+        // The rule without amount leaves the transactions of the rule with an amount
+        $this->assertSame(['matching' => 1, 'categorized' => 1], Category::countKeyword($any['id']));
+        $this->assertSame(0, Category::updateKeyword($any['id'], 'PAYPAL', 1)['applied']);
+        $this->assertSame([3, 1, 3], [$category('p1'), $category('p2'), $category('p3')]);
+
+        // Listed with their amount (null: any amount)
+        $rules = array_values(array_filter(Category::getKeywords(), fn($rule) => $rule['keyword'] === 'PAYPAL'));
+        $this->assertEqualsCanonicalizing([null, '10.00'], array_column($rules, 'amount'));
+
+        // Matching: the rules with an amount first, to the cent, whatever the sign
+        $this->assertSame(3, Category::find('PAYPAL EUROPE', null, -10));
+        $this->assertSame(3, Category::find('PAYPAL EUROPE', null, '10.00'));
+        $this->assertSame(1, Category::find('PAYPAL EUROPE', null, -10.01));
+        $this->assertSame(1, Category::find('PAYPAL EUROPE'));
+
+        // Resynchronize: same result
+        Db::query("UPDATE bank_transaction SET category = 0 WHERE uuid LIKE 'p%'");
+        Category::applyKeywords();
+        $this->assertSame([3, 1, 3], [$category('p1'), $category('p2'), $category('p3')]);
+
+        // Update without amount (older apps): the amount is kept; '' removes it
+        $kept = Category::updateKeyword($ten['id'], 'PAYPAL', 3);
+        $this->assertSame('10.00', $kept['amount']);
+        // Over HTTP, a number (JSON_NUMERIC_CHECK)
+        $this->assertEquals(10, json_decode($this->callRoute('PUT', '/category/keyword', ['id' => $ten['id'], 'keyword' => 'PAYPAL', 'category' => 3]), true)['amount']);
+        $this->assertSame('12.00', Category::updateKeyword($ten['id'], 'PAYPAL', 3, false, 12)['amount']);
+        try {
+            Category::updateKeyword($ten['id'], 'PAYPAL', 3, false, '');
+            $this->fail('Second PAYPAL rule without amount accepted');
+        } catch (ApiError $e) {
+            $this->assertSame('keyword_exists', $e->getErrorCode());
+        }
+        Category::deleteKeyword($any['id']);
+        $this->assertNull(Category::updateKeyword($ten['id'], 'PAYPAL', 3, false, '')['amount']);
+    }
+
+    public function testRuleAmountUniquenessAndValidation()
+    {
+        Category::createKeyword('PAYPAL', 1, false, 10);
+        Category::createKeyword('PAYPAL', 3, false, 9.99);
+        foreach ([['PAYPAL', '10.00', 409, 'rule_amount_exists'], ['EDF', '', 409, 'keyword_exists'], ['EDF', null, 409, 'keyword_exists'],
+                  ['NEW', 'abc', 400, 'rule_amount_invalid'], ['NEW', '0', 400, 'rule_amount_invalid'],
+                  ['NEW', '100000000', 400, 'rule_amount_invalid']] as [$keyword, $amount, $code, $error]) {
+            try {
+                Category::createKeyword($keyword, 1, false, $amount);
+                $this->fail("Rule $keyword $amount accepted");
+            } catch (ApiError $e) {
+                $this->assertSame([$code, $error], [$e->getCode(), $e->getErrorCode()]);
+            }
+        }
+        // The rule with an amount does not prevent the same keyword without amount
+        $this->assertNull(Category::createKeyword('PAYPAL', 4)['amount']);
+
+        // The database refuses a second rule without amount for a keyword (a unique index accepts several NULLs)
+        $this->expectException(Throwable::class);
+        Db::query("INSERT INTO bank_transaction_category_keyword (keyword, category) VALUES ('PAYPAL', 1)");
+    }
+
+    public function testBeforeTheMigrationTheRulesHaveNoAmount()
+    {
+        Db::query("ALTER TABLE bank_transaction_category_keyword DROP INDEX keyword, DROP COLUMN amount_key, DROP COLUMN amount, ADD UNIQUE KEY keyword (keyword)");
+        $ready = new ReflectionProperty(Category::class, 'amountReady');
+        $ready->setValue(null, null);
+        try {
+            $this->assertNull(Category::getKeywords()[0]['amount']);
+            $rule = Category::createKeyword('PAYPAL', 1);
+            $this->assertNull(Category::updateKeyword($rule['id'], 'PAYPAL', 3)['amount']);
+            $this->assertSame(['matching' => 0, 'categorized' => 0], Category::countKeyword($rule['id']));
+            $this->assertSame(3, Category::find('PAYPAL', null, 10));
+            try {
+                Category::createKeyword('SPOTIFY', 1, false, 10);
+                $this->fail('Amount accepted before the migration');
+            } catch (ApiError $e) {
+                $this->assertSame('rule_amount_migration', $e->getErrorCode());
+            }
+        } finally {
+            Db::query("ALTER TABLE bank_transaction_category_keyword DROP INDEX keyword,
+                ADD COLUMN amount decimal(10,2) DEFAULT NULL AFTER category,
+                ADD COLUMN amount_key decimal(10,2) AS (IFNULL(amount, 0)) PERSISTENT, ADD UNIQUE KEY keyword (keyword, amount_key)");
+            $ready->setValue(null, null);
+        }
+    }
 }

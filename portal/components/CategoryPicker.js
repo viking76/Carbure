@@ -4,6 +4,9 @@
  * Category selector showing each category with its icon, color, parent and
  * type, grouped by type (expenses, income, off-budget), with a search field: the
  * matching text is highlighted, the arrow keys move in the list and Enter chooses.
+ * Given the amount of the transaction, the categories of its direction come first
+ * (income for a credit, expenses for a debit), then the off-budget ones (transfers),
+ * then the others (a refund is a credit on an expense category).
  *
  * @component
  * @example
@@ -15,6 +18,20 @@ import { badgeStyle } from '../utils/categoryIcons.js';
 
 /** Display order of the category types */
 const TYPES = ['DEBIT', 'CREDIT', 'HORS-BUDGET'];
+
+/**
+ * Display order of the category types for the amount of a transaction: its direction
+ * first, then the off-budget categories, then the other direction
+ * @param {number|string|null} amount - Amount of the transaction (null: unknown)
+ * @returns {string[]}
+ */
+export function typeOrder(amount) {
+    const value = Number(amount);
+    if (amount === null || amount === '' || !Number.isFinite(value) || value === 0) {
+        return TYPES;
+    }
+    return value > 0 ? ['CREDIT', 'HORS-BUDGET', 'DEBIT'] : ['DEBIT', 'HORS-BUDGET', 'CREDIT'];
+}
 
 /** Number of pickers created, for unique DOM ids */
 let instances = 0;
@@ -41,7 +58,9 @@ export default {
          * Small button for a row of a list: the list floats over the page (it is not cut
          * by a scrolling container) and closes when the page scrolls
          */
-        compact: { type: Boolean, default: false }
+        compact: { type: Boolean, default: false },
+        /** Amount of the transaction: the categories of its direction come first (null: usual order) */
+        amount: { type: [Number, String], default: null }
     },
 
     emits: ['update:modelValue'],
@@ -79,7 +98,7 @@ export default {
             const matches = (c, parent) => !search || c.name.toLowerCase().includes(search)
                 || (parent && parent.name.toLowerCase().includes(search));
 
-            return TYPES.map(type => {
+            return typeOrder(this.amount).map(type => {
                 const items = [];
                 for (const parent of usable.filter(c => !isChild(c) && c.type === type).sort(byName)) {
                     if (matches(parent, null)) {
@@ -283,8 +302,9 @@ export default {
     template: `
         <div class="category-picker" :class="{ open, compact }" @keydown.esc="close">
             <button ref="button" type="button" class="category-picker-button" @click="toggle"
-                    aria-haspopup="listbox" :aria-expanded="open ? 'true' : 'false'"
-                    :aria-label="t('categoryLabel') + ' : ' + (selected ? selected.name : (placeholder || t('ruleCategoryPlaceholder')))">
+                    aria-haspopup="listbox" :aria-expanded="open ? 'true' : 'false'">
+                <!-- Named by its content (WCAG 2.5.3 Label in Name): the visible text, after a hidden prefix -->
+                <span class="visually-hidden">{{ t('categoryLabel') }} : </span>
                 <template v-if="selected">
                     <span class="category-badge" :style="badgeStyle(selected)">
                         <span class="material-icons" aria-hidden="true">{{ iconFor(selected) }}</span>

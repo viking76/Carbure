@@ -1,5 +1,5 @@
 # Carbure demonstration: the regular image with MariaDB inside and demonstration data
-# loaded at each start, to try Carbure in one command:
+# loaded at each start (and again each day), to try Carbure in one command:
 #   docker run --rm -p 8080:80 ltoinel/carbure:demo
 # then http://localhost:8080/portal/ (demo / carbure; the password of admin is printed
 # in the logs, new at each start). Not for real data: public password, everything is wiped at each start.

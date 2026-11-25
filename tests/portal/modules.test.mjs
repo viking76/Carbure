@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createBudgetModule } from '../../portal/modules/budgetModule.js';
 import { createTransactionModule, recurringCalendar, similarLabelQuery } from '../../portal/modules/transactionModule.js';
-import { createRulesModule } from '../../portal/modules/rulesModule.js';
+import { createRulesModule, ruleAmountText } from '../../portal/modules/rulesModule.js';
 import { agentConfigurations, createAgentsModule } from '../../portal/modules/agentsModule.js';
 import { createRequire } from 'node:module';
 
@@ -53,12 +53,32 @@ test('budgetGroups: expenses, incomes, off-budget or empty', () => {
     const groups = budget.computed.budgetGroups.call({ currentBudgetList: [
         { name: 'Logement', type: 'DEBIT', budget: '1000.00', consummed: 950 },
         { name: 'Vacances', type: 'DEBIT', budget: '0.00', consummed: 0 },
+        // #491: an expense without budget is not an overspending
+        { name: 'Cadeaux', type: 'DEBIT', budget: '0.00', consummed: 45 },
         { name: 'Salaire', type: 'CREDIT', budget: '0.00', consummed: 3200 },
         { name: 'Épargne', type: 'HORS-BUDGET', budget: '0.00', consummed: 500 },
     ] });
     assert.deepEqual(groups.expenses.map(i => i.name), ['Logement']);
     assert.deepEqual(groups.incomes.map(i => i.name), ['Salaire']);
-    assert.deepEqual(groups.others.map(i => i.name), ['Vacances', 'Épargne']);
+    assert.deepEqual(groups.others.map(i => i.name), ['Vacances', 'Cadeaux', 'Épargne']);
+});
+
+test('submitBudgetEdit: "no budget" saves 0 without an amount (#491)', async () => {
+    const saved = [];
+    const context = {
+        budgetUseChildren: false, budgetNone: true, budgetNewValue: '', budgetNote: ' ',
+        selectedMonth: 11, selectedYear: 2026, savingBudget: false,
+        showToast(message) { saved.push(['toast', message]); },
+        t: key => key,
+        async handleBudgetSave(amount, month, year, note) { saved.push([amount, month, year, note]); },
+    };
+    await budget.methods.submitBudgetEdit.call(context);
+    assert.deepEqual(saved, [[0, 11, 2026, '']]);
+
+    // Without it, an empty amount is still refused
+    saved.length = 0;
+    await budget.methods.submitBudgetEdit.call({ ...context, budgetNone: false });
+    assert.deepEqual(saved, [['toast', 'budgetInvalidAmount']]);
 });
 
 test('budgetSummary: totals of the budgeted expenses', () => {
@@ -87,6 +107,18 @@ test('copySource: the month before the selected one, named in the button', () =>
     const january = { ...context, selectedMonth: 1, selectedYear: 2026 };
     assert.deepEqual(budget.computed.copySource.call(january), { month: 12, year: 2025 });
     assert.equal(budget.computed.copySourceName.call({ ...january, copySource: { month: 12, year: 2025 } }), 'décembre');
+});
+
+test('budgetCopyOffered: only when the status of the selected month says so', () => {
+    const offered = (copyStatus, selectedMonth = 3, selectedYear = 2026) =>
+        createBudgetModule(() => ({ state: { copyStatus } }), () => null).computed.budgetCopyOffered.call({ selectedMonth, selectedYear });
+
+    assert.equal(offered({ month: '2026-03', copyable: true }), true);
+    assert.equal(offered({ month: '2026-03', copyable: false }), false);
+    // Unknown, or the status of another month (the answer not arrived yet)
+    assert.equal(offered(null), false);
+    assert.equal(offered({ month: '2026-02', copyable: true }), false);
+    assert.equal(offered({ month: '2026-12', copyable: true }, '12', '2026'), true);
 });
 
 test('categoryColor: color of the category, the primary color by default', () => {
@@ -126,6 +158,70 @@ test('displayedTransactions and totals', () => {
     assert.equal(transactions.computed.uncheckedCount.call(context), 1);
 });
 
+test('uncategorized filter: the transactions without a category, combined with the other filters', () => {
+    const list = [
+        { id: 1, amount: '3200.00', pointed: '1', category: 4 },
+        { id: 2, amount: '-82.40', pointed: '0', category: '0' },
+        { id: 3, amount: '-950.00', pointed: '1', category: null },
+    ];
+    const context = { transactions: list, searchResults: [list[0]], isSearching: false, transactionFilter: 'all', uncategorizedOnly: true };
+    context.isUncategorized = transactions.methods.isUncategorized;
+    assert.deepEqual(transactions.computed.displayedTransactions.call(context).map(t => t.id), [2, 3]);
+    assert.equal(transactions.computed.uncategorizedCount.call(context), 2);
+    assert.deepEqual(transactions.computed.displayedTransactions.call({ ...context, transactionFilter: 'unchecked' }).map(t => t.id), [2]);
+    // Also applied to the search results, counted among them
+    assert.deepEqual(transactions.computed.displayedTransactions.call({ ...context, isSearching: true }), []);
+    assert.equal(transactions.computed.uncategorizedCount.call({ ...context, isSearching: true }), 0);
+    // Off: every transaction
+    assert.equal(transactions.computed.displayedTransactions.call({ ...context, uncategorizedOnly: false }).length, 3);
+});
+
+/** `this` of the portal saving the transaction modal in a tab (date unchanged), the API calls recorded */
+function detailContext(activeTab, transaction, category) {
+    const calls = [];
+    const api = {
+        async setTransactionCategory(id, value) { calls.push(['category', id, value]); },
+        async setTransactionPointed(id, value) { calls.push(['pointed', id, value]); },
+        async setTransactionDate(id, value) { calls.push(['date', id, value]); },
+    };
+    const module = createTransactionModule(() => api);
+    const context = {
+        activeTab, isAdmin: false, transactionDetail: { date: '2026-10-05', ...transaction }, transactionDetailCategory: category,
+        transactionDetailPointed: !!Number(transaction.pointed), transactionDetailDate: '2026-10-05',
+        transactions: [], searchResults: [], t: key => key, apiErrorText, showToast() {},
+        refreshBudgetTab() { calls.push(['refreshBudgetTab']); },
+        loadPeriods() {}, loadTransactions() {},
+    };
+    for (const [name, method] of Object.entries(module.methods)) {
+        context[name] = method.bind(context);
+    }
+    return { context, calls };
+}
+
+test('saveTransactionDetail: a new category or date reloads the Budget tab where the modal was opened', async () => {
+    const moved = detailContext('budget', { id: 7, label: 'CB PAUL', category: 2, pointed: 1 }, 4);
+    await moved.context.saveTransactionDetail();
+    assert.deepEqual(moved.calls, [['category', 7, 4], ['refreshBudgetTab']]);
+    assert.equal(moved.context.transactionDetail, null);
+
+    // Only checked: the amounts of the categories did not change
+    const checked = detailContext('budget', { id: 7, label: 'CB PAUL', category: 2, pointed: 0 }, 2);
+    checked.context.transactionDetailPointed = true;
+    await checked.context.saveTransactionDetail();
+    assert.deepEqual(checked.calls, [['pointed', 7, true]]);
+
+    // Moved to another month: the amounts of the month shown changed
+    const dated = detailContext('budget', { id: 7, label: 'CB PAUL', category: 2, pointed: 1 }, 2);
+    dated.context.transactionDetailDate = '2026-09-30';
+    await dated.context.saveTransactionDetail();
+    assert.deepEqual(dated.calls, [['date', 7, '2026-09-30'], ['refreshBudgetTab']]);
+
+    // Transactions tab: the row is updated in place
+    const listed = detailContext('transactions', { id: 7, label: 'CB PAUL', category: 0, pointed: 1 }, 4);
+    await listed.context.saveTransactionDetail();
+    assert.deepEqual(listed.calls, [['category', 7, 4]]);
+});
+
 test('recurring transactions: ids, filter and expected series', () => {
     const recurring = [
         { label: 'VIR SALAIRE ACME', ids: [1], status: 'received' },
@@ -154,6 +250,35 @@ test('recurring transactions: ids, filter and expected series', () => {
     assert.equal(transactions.computed.recurringTotal.call({ recurringCalendar }), 2236.51);
 });
 
+test('recurring transactions: their bar folded by default, unfolded remembered, folded without its filter (#465)', () => {
+    const stored = {};
+    globalThis.localStorage = { getItem: key => stored[key] ?? null, setItem: (key, value) => { stored[key] = value; } };
+    try {
+        const context = { ...transactions.data(), ...transactions.methods };
+        assert.equal(context.recurringExpanded, false);
+
+        context.toggleRecurringBar();
+        assert.equal(context.recurringExpanded, true);
+        assert.equal(stored.recurringExpanded, '1');
+        assert.equal(createTransactionModule(() => null).data().recurringExpanded, true);
+
+        // Folded: the list is no longer limited by a switch out of sight
+        context.recurringOnly = true;
+        context.toggleRecurringBar();
+        assert.equal(context.recurringExpanded, false);
+        assert.equal(context.recurringOnly, false);
+        assert.equal(stored.recurringExpanded, '0');
+
+        // Storage refused (private browsing): folded, and the bar still folds and unfolds
+        globalThis.localStorage = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+        assert.equal(createTransactionModule(() => null).data().recurringExpanded, false);
+        context.toggleRecurringBar();
+        assert.equal(context.recurringExpanded, true);
+    } finally {
+        delete globalThis.localStorage;
+    }
+});
+
 test('similarLabelQuery: the merchant, without the kind of operation nor the references', () => {
     // Labels of the data set (tests/e2e/server/seed.php) and as woob gives them
     assert.equal(similarLabelQuery('CB BOULANGERIE PAUL'), 'BOULANGERIE PAUL');
@@ -175,6 +300,7 @@ test('similarLabelQuery: the merchant, without the kind of operation nor the ref
 test('searchSimilarTransactions: closes the detail and searches like a typed search', async () => {
     const searched = [];
     const context = {
+        activeTab: 'transactions',
         transactionDetail: { id: 1, label: 'CB BOULANGERIE PAUL' },
         searchQuery: '',
         searchTimer: null,
@@ -184,6 +310,45 @@ test('searchSimilarTransactions: closes the detail and searches like a typed sea
     assert.equal(context.transactionDetail, null);
     assert.equal(context.searchQuery, 'BOULANGERIE PAUL');
     assert.deepEqual(searched, ['BOULANGERIE PAUL']);
+    // Same merchant: in the label only, until the user types
+    assert.equal(context.searchLabelOnly, true);
+    context.isSearching = true;
+    transactions.methods.onSearchInput.call(context);
+    clearTimeout(context.searchTimer);
+    assert.equal(context.searchLabelOnly, false);
+});
+
+test('searchSimilarTransactions: from the Budget tab, the results are shown in the Transactions tab', async () => {
+    const context = {
+        activeTab: 'budget',
+        transactionDetail: { id: 1, label: 'CB BOULANGERIE PAUL' },
+        searchQuery: '',
+        searchTimer: null,
+        setActiveTab(tab) { this.activeTab = tab; },
+        runSearch() {},
+    };
+    await transactions.methods.searchSimilarTransactions.call(context);
+    assert.equal(context.activeTab, 'transactions');
+    assert.equal(context.searchQuery, 'BOULANGERIE PAUL');
+});
+
+test('reloadBudgetLevel: reloads the budgets, then the transactions of the selected category', async () => {
+    const calls = [];
+    const store = { async reloadBudgets(month, year) { calls.push(['reloadBudgets', month, year]); } };
+    const api = { async fetchCategoryTransactions(month, year, category) { calls.push(['transactions', month, year, category]); return [{ id: 9 }]; } };
+    const module = createBudgetModule(() => store, () => api);
+    const context = { budgetCategory: { id: 4, name: 'Logement' }, ensureCategories() {}, showToast() {}, $nextTick() {} };
+    context.loadBudgetTransactions = module.methods.loadBudgetTransactions.bind(context);
+    context.budgetItemName = module.methods.budgetItemName.bind(context);
+    await module.methods.reloadBudgetLevel.call(context, 10, 2026);
+    await new Promise(resolve => setTimeout(resolve));
+    assert.deepEqual(calls, [['reloadBudgets', 10, 2026], ['transactions', 10, 2026, 4]]);
+    assert.deepEqual(context.budgetTransactions, [{ id: 9 }]);
+
+    // No category selected: only the budgets
+    calls.length = 0;
+    await module.methods.reloadBudgetLevel.call({ ...context, budgetCategory: null }, 10, 2026);
+    assert.deepEqual(calls, [['reloadBudgets', 10, 2026]]);
 });
 
 test('isSearching: from 2 characters', () => {
@@ -389,6 +554,49 @@ test('accounts: closing the modal stops woob waiting for the approval of the ban
     assert.equal(context.showAddAccountsModal, false);
 });
 
+test('accounts: the + of the synchronized accounts goes to the banks already connected, or a new one', async () => {
+    const { NEW_BANK } = await import('../../portal/modules/accountsModule.js');
+    const listed = [];
+    const context = await accountsContext({ discoverBankAccounts: async backend => { listed.push(backend); return [{ bankId: `1@${backend}`, followed: false }]; } });
+    let connecting = 0;
+    context.openConnectModal = () => connecting++;
+
+    // No bank connected: its connection
+    context.bankBackends = [];
+    context.openAddAccountsPicker();
+    assert.equal(connecting, 1);
+    assert.equal(context.showAddAccountsModal, false);
+
+    // One bank: straight to its accounts, the list still offering a new bank
+    context.bankBackends = [{ name: 'bnp', module: 'bnp' }];
+    await context.openAddAccountsPicker();
+    assert.deepEqual(listed, ['bnp']);
+    assert.equal(context.addAccountsBackend, 'bnp');
+    assert.equal(context.addAccountsPicking, true);
+    context.closeAddAccounts();
+
+    // Several: the bank is chosen first, nothing listed before
+    context.bankBackends = [{ name: 'bnp', module: 'bnp' }, { name: 'cic_pro', module: 'cic' }];
+    context.openAddAccountsPicker();
+    assert.equal(context.showAddAccountsModal, true);
+    assert.equal(context.addAccountsPicking, true);
+    assert.equal(context.addAccountsBackend, '');
+    assert.deepEqual(listed, ['bnp']);
+    await context.chooseAddAccountsBackend('cic_pro');
+    assert.equal(context.addAccountsBackend, 'cic_pro');
+    assert.deepEqual(context.discoveredAccounts, [{ bankId: '1@cic_pro', followed: false }]);
+    assert.equal(context.addAccountsPicking, true);
+    // Back to no bank: nothing shown
+    context.chooseAddAccountsBackend('');
+    assert.equal(context.addAccountsBackend, '');
+    assert.deepEqual(context.discoveredAccounts, []);
+    // Last choice of the list: the connection of a new bank, instead of the modal
+    context.chooseAddAccountsBackend(NEW_BANK);
+    assert.equal(connecting, 2);
+    assert.equal(context.showAddAccountsModal, false);
+    assert.equal(context.addAccountsPicking, false);
+});
+
 test('accounts: renaming a connected bank updates it in the list', async () => {
     const { createAccountsModule } = await import('../../portal/modules/accountsModule.js');
     const calls = [];
@@ -472,6 +680,13 @@ test('confirm: answered by the buttons, the action kept running and its error sh
     // Cancelled
     let asked = context.askConfirm({ title: 'T', message: 'M', confirmLabel: 'OK' });
     assert.equal(context.confirmDialog.message, 'M');
+    assert.equal(context.confirmDialog.warning, null);
+    context.cancelConfirm();
+    assert.equal(await asked, false);
+
+    // With a warning: shown apart from the question
+    asked = context.askConfirm({ title: 'T', message: 'M', warning: 'W', confirmLabel: 'OK' });
+    assert.equal(context.confirmDialog.warning, 'W');
     context.cancelConfirm();
     assert.equal(await asked, false);
     assert.equal(context.confirmDialog, null);
@@ -1393,4 +1608,205 @@ test('deleteSelectedTransactions deletes the parts first, keeps the selection of
     assert.equal(context.reloads, 2);
     assert.equal(context.deletingSelection, false);
     delete globalThis.confirm;
+});
+
+test('categorizeSelectedTransactions sets the category chosen on the whole selection, uncategorized included', async () => {
+    const sent = [];
+    let refuse = false;
+    const module = createTransactionModule(() => ({
+        setTransactionsCategory: async (ids, category) => {
+            if (refuse) {
+                throw new Error('Category not found');
+            }
+            sent.push([ids, category]);
+        },
+    }));
+    const context = {
+        ...module.data(),
+        transactions: [
+            { id: 1, category: 2, pointed: 0, split_of: null },
+            { id: 9, category: 3, pointed: 0, split_of: 1 },
+            { id: 2, category: 4, pointed: 0, split_of: null },
+        ],
+        searchResults: [{ id: 2, category: 4, pointed: 0, split_of: null }],
+        ruleCategories: [{ id: 0, name: 'Défaut' }, { id: 5, name: 'Courses' }],
+        selectingTransactions: true, selectedTransactionIds: [1, 2],
+        toasts: [],
+        t: (key, params) => `${key} ${JSON.stringify(params ?? {})}`,
+        showToast(text) { this.toasts.push(text); },
+        apiErrorText: error => error.message,
+    };
+
+    // No category chosen: nothing sent
+    await module.methods.categorizeSelectedTransactions.call(context, '');
+    assert.deepEqual(sent, []);
+
+    // The selection gets it and is checked, the part of a split one is checked only; the selection stays
+    await module.methods.categorizeSelectedTransactions.call(context, 5);
+    assert.deepEqual(sent, [[[1, 2], 5]]);
+    assert.deepEqual(context.transactions.map(t => [t.id, t.category, t.pointed]), [[1, 5, 1], [9, 3, 1], [2, 5, 1]]);
+    assert.deepEqual(context.searchResults.map(t => [t.category, t.pointed]), [[5, 1]]);
+    assert.deepEqual(context.toasts, ['selectionCategorized {"count":2,"name":"Courses"}']);
+    assert.deepEqual([context.selectingTransactions, context.selectedTransactionIds], [true, [1, 2]]);
+
+    // Uncategorized (0) is a choice
+    context.selectedTransactionIds = [2];
+    await module.methods.categorizeSelectedTransactions.call(context, 0);
+    assert.deepEqual(sent.at(-1), [[2], 0]);
+    assert.equal(context.transactions[2].category, 0);
+
+    // A change already being saved: another one is ignored
+    context.categorizingSelection = true;
+    await module.methods.categorizeSelectedTransactions.call(context, 5);
+    assert.equal(sent.length, 2);
+    context.categorizingSelection = false;
+
+    // A refusal: nothing changes, the selection stays
+    refuse = true;
+    context.selectedTransactionIds = [1];
+    await module.methods.categorizeSelectedTransactions.call(context, 99);
+    assert.deepEqual([context.selectingTransactions, context.selectedTransactionIds, context.transactions[0].category], [true, [1], 5]);
+    assert.equal(context.toasts.at(-1), 'Category not found');
+    assert.equal(context.categorizingSelection, false);
+});
+
+test('toggleSelectAll selects the transactions shown, then none', () => {
+    const module = createTransactionModule(() => ({}));
+    const context = {
+        ...module.data(),
+        transactions: [
+            { id: 1, amount: '-10', pointed: 1, split_of: null },
+            { id: 2, amount: '-20', pointed: 0, split_of: null },
+            { id: 3, amount: '-30', pointed: 0, split_of: null },
+        ],
+        searchResults: [], isSearching: false, recurringOnly: false, transactionFilter: 'all',
+        selectedTransactionIds: [2],
+    };
+    Object.assign(context, module.methods);
+    for (const name of ['displayedTransactions', 'allDisplayedSelected']) {
+        Object.defineProperty(context, name, { get: () => module.computed[name].call(context) });
+    }
+
+    assert.equal(context.allDisplayedSelected, false);
+    context.toggleSelectAll();
+    assert.deepEqual(context.selectedTransactionIds, [1, 2, 3]);
+    assert.equal(context.allDisplayedSelected, true);
+    context.toggleSelectAll();
+    assert.deepEqual(context.selectedTransactionIds, []);
+
+    // Only the transactions shown: the filter applied
+    context.transactionFilter = 'unchecked';
+    context.toggleSelectAll();
+    assert.deepEqual(context.selectedTransactionIds, [2, 3]);
+    assert.equal(context.allDisplayedSelected, true);
+
+    // Nothing shown: nothing to select
+    context.transactions = [];
+    assert.equal(context.allDisplayedSelected, false);
+});
+
+test('toggleSelectAll stops at the selection limit', () => {
+    const module = createTransactionModule(() => ({}));
+    const context = {
+        ...module.data(),
+        transactions: Array.from({ length: 520 }, (_, i) => ({ id: i + 1, amount: '-1', pointed: 1, split_of: null })),
+        searchResults: [], isSearching: false, recurringOnly: false, transactionFilter: 'all',
+        selectedTransactionIds: [],
+    };
+    Object.assign(context, module.methods);
+    for (const name of ['displayedTransactions', 'allDisplayedSelected']) {
+        Object.defineProperty(context, name, { get: () => module.computed[name].call(context) });
+    }
+    context.toggleSelectAll();
+    assert.equal(context.selectedTransactionIds.length, 500);
+    assert.equal(context.allDisplayedSelected, true);
+});
+
+test('rules: the optional amount, shown with 2 decimals, sent with the rule and read by the screen readers', async () => {
+    assert.equal(ruleAmountText(null), '');
+    assert.equal(ruleAmountText(undefined), '');
+    assert.equal(ruleAmountText(10), '10.00');
+    assert.equal(ruleAmountText('9.5'), '9.50');
+
+    const sent = [];
+    const api = {
+        createRule: async (...args) => { sent.push(['create', ...args]); return { applied: 1 }; },
+        updateRule: async (...args) => { sent.push(['update', ...args]); return { applied: 0 }; },
+        fetchRules: async () => [],
+        countRule: async () => ({ matching: 1, categorized: 1 }),
+    };
+    const module = createRulesModule(() => api);
+    const context = {
+        ...module.data(), ...module.methods, apiErrorText, t: key => key, showToast: () => {}, $nextTick: () => {},
+        formatAmount: amount => Number(amount).toFixed(2).replace('.', ','), currencySymbol: '€',
+    };
+    assert.equal(context.ruleLabel({ keyword: 'PAYPAL', amount: null }), 'PAYPAL');
+    assert.equal(context.ruleLabel({ keyword: 'PAYPAL', amount: 10 }), 'PAYPAL · 10,00 €');
+
+    context.openRuleModal({ id: 4, keyword: 'PAYPAL', category: 3, notify: 0, amount: 10 });
+    assert.equal(context.newRule.amount, '10.00');
+    await context.addRule();
+    assert.deepEqual(sent.at(-1), ['update', 4, 'PAYPAL', 3, false, '10.00']);
+
+    context.openRuleModal({ keyword: 'PAYPAL', category: 1 });
+    assert.equal(context.newRule.amount, '');
+    await context.addRule();
+    assert.deepEqual(sent.at(-1), ['create', 'PAYPAL', 1, false, '']);
+});
+
+test('budget: the own item of a parent lists only its transactions, without going into it again (#492)', async () => {
+    const navigated = [];
+    const fetched = [];
+    const store = { navigateToChildren: async (item) => { navigated.push(item.id); return true; } };
+    const api = { fetchCategoryTransactions: async (month, year, category, own) => { fetched.push([category, own]); return [{ id: 9 }]; } };
+    const module = createBudgetModule(() => store, () => api);
+    const context = {
+        budgetCategory: null,
+        budgetTransactions: [],
+        t: (key, params) => `${key}:${params.category}`,
+        ensureCategories() {},
+        showToast() {},
+        $nextTick() {},
+    };
+    for (const [name, method] of Object.entries(module.methods)) {
+        context[name] = method.bind(context);
+    }
+
+    await context.handleBudgetClick({ id: 1, name: 'Alimentation', own: true }, 11, 2026);
+    assert.deepEqual(navigated, []);
+    assert.deepEqual(fetched, [[1, true]]);
+    assert.deepEqual(context.budgetCategory, { id: 1, name: 'budgetOwnTransactions:Alimentation', own: true });
+    assert.equal(context.isBudgetCategorySelected({ id: 1, own: true }), true);
+    assert.equal(context.isBudgetCategorySelected({ id: 1 }), false);
+
+    await context.handleBudgetClick({ id: 1, name: 'Alimentation' }, 11, 2026);
+    assert.deepEqual(navigated, [1]);
+    assert.deepEqual(fetched[1], [1, false]);
+    assert.equal(context.budgetItemName({ id: 2, name: 'Supermarché' }), 'Supermarché');
+});
+
+test('importAccountOf: the account of the household with the number read in the file, else none (#485)', async () => {
+    const { importAccountOf } = await import('../../portal/modules/importModule.js');
+    const accounts = [{ id: 3, account_number: 'FR76 3000 1234' }, { id: 5, account_number: 'cash' }];
+    assert.equal(importAccountOf({ account: 'FR7630001234' }, accounts), 3);
+    assert.equal(importAccountOf({ account: 'cash' }, accounts), 5);
+    assert.equal(importAccountOf({ account: 'other' }, accounts), '');
+    assert.equal(importAccountOf({ account: null }, accounts), '');
+    assert.equal(importAccountOf(null, []), '');
+});
+
+test('confirmImport sends the account chosen, none for the one of the file (#485)', async () => {
+    const { createImportModule } = await import('../../portal/modules/importModule.js');
+    const calls = [];
+    const api = { importTransactions: async (...args) => { calls.push(args.slice(2)); return { imported: 1, categorized: 0, to: null }; } };
+    const module = createImportModule(() => api);
+    const context = {
+        importFile: { name: 'releve.csv', content: 'eA==' }, importSelection: { 0: true, 1: false }, importAccountId: 3,
+        importing: false, t: key => key, showToast() {}, loadPeriods() {}, loadTransactions() {}, closeImport() {},
+        selectedMonth: 11, selectedYear: 2026,
+    };
+    context.importSelectedCount = 1;
+    await module.methods.confirmImport.call(context);
+    await module.methods.confirmImport.call({ ...context, importAccountId: '' });
+    assert.deepEqual(calls, [[[0], 3], [[0], null]]);
 });

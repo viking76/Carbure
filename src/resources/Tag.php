@@ -294,7 +294,7 @@ final class Tag {
      * @return list<int> The ids, once each
      * @throws Error If one is not a positive integer (400)
      */
-    private static function idList(array $ids): array
+    public static function idList(array $ids): array
     {
         $list = [];
         foreach ($ids as $id) {

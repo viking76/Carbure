@@ -10,7 +10,7 @@ to the API of `src/` (`/api/...`). User documentation: [docs/portail.md](../docs
 | `modules/` | One mixin per part of the portal (state, computed values and methods) |
 | `services/apiService.js` | Calls to the API (JWT, error messages, cancellable list requests) |
 | `stores/budgetStore.js` | Navigation in the budget categories |
-| `components/` | `CategoryPicker`, `FlowChart`, `SqlEditor` |
+| `components/` | `CategoryPicker`, `FlowChart`, `SqlEditor`, `TagInput` |
 | `utils/` | Formatting, icons and colors of the categories |
 | `i18n.js` | Loader of the texts, `t()` (fallback to French, plurals `_one` / `_other`) |
 | `i18n/*.json` | Texts, one file per language (`fr` reference, `en`): every key in each |

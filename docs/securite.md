@@ -278,7 +278,9 @@ Seules ces routes ne demandent pas de JWT (un test unitaire le vérifie) :
   paramètres `token=`, `access_token=` et `code=` des URL (format `carbure` de
   `docker/nginx.conf`) : le jeton d'une tâche planifiée pas encore migrée vers l'en-tête
   n'y apparaît pas. Un proxy placé devant (proxy inversé du NAS) peut en revanche
-  journaliser l'URL complète.
+  journaliser l'URL complète. Les appels réussis de `GET /api/health` (healthcheck
+  Docker, supervision, applications mobiles) n'y sont pas écrits ; ses erreurs (4xx,
+  5xx) le sont.
 - La pile d'appels d'une erreur est journalisée **sans les arguments** des fonctions (qui
   contiennent les paramètres de la requête : mot de passe, jeton…), et l'image Docker
   active `zend.exception_ignore_args`.
@@ -293,7 +295,9 @@ Seules ces routes ne demandent pas de JWT (un test unitaire le vérifie) :
   `X-Request-Id` valide), l'**adresse IP du client**, l'utilisateur, la méthode et le chemin
   (jetons de l'URL masqués), l'appelant, le message et son contexte. Chaque requête se
   termine par une ligne avec son statut HTTP et sa durée (INFO, WARNING pour 4xx, ERROR
-  pour 5xx). Un message ne peut pas simuler une autre entrée : ses retours à la ligne
+  pour 5xx). `GET /health`, interrogé toutes les quelques minutes par les healthchecks,
+  n'écrit son appel et cette ligne qu'en niveau `debug` (option `quiet` de sa route) ;
+  ses erreurs gardent leur niveau. Un message ne peut pas simuler une autre entrée : ses retours à la ligne
   sont échappés.
 - **Adresse du client** : derrière un proxy de confiance (adresse privée ou locale : nginx
   de l'image, proxy inversé du NAS), c'est la dernière adresse publique de
@@ -387,6 +391,20 @@ jour**. Carbure télécharge lui-même la clé juste avant : woob n'est lancé q
 empreinte est exactement celle confirmée ; après la mise à jour, la clé que woob a
 conservée (`/data/woob/.local/share/woob/keyrings/`) doit aussi être celle-là, sinon elle
 est supprimée et la mise à jour échoue.
+
+**La clé du dépôt officiel est épinglée dans Carbure** : son empreinte
+SHA-256 (`a1755b379793ff4922a7bfb5f566c019205f805b96f3420aee95938cd0d1634a`, soit le SHA-1
+`b5fc136c2d500b8483696a0ee722865842a4cc45` affiché par woob ; clés des mainteneurs de woob,
+inchangée depuis février 2023) est vérifiée une fois pour toutes par les mainteneurs de Carbure
+(`WoobRepository::OFFICIAL_KEYRINGS`). Au premier démarrage du conteneur
+(`tools/woob-trust.php`), Carbure télécharge la clé du dépôt officiel et, si son empreinte
+est **exactement** celle épinglée, l'approuve sans rien demander et installe les modules,
+avec les mêmes contrôles qu'une approbation manuelle : les banques se connectent tout de
+suite. Une autre clé (changée, ou servie par un attaquant), un autre dépôt
+(`woob_repository`) ou un dépôt injoignable au démarrage attendent toujours l'approbation
+d'un administrateur, comme ci-dessous. L'épinglage se fait en SHA-256 et non en SHA-1 :
+SHA-1 n'est plus sûr face aux collisions à préfixe choisi, une clé GPG peut porter des
+paquets de remplissage, et cette approbation-là se fait sans regard humain.
 
 Tant que le dépôt n'est pas approuvé, Carbure refuse aussi (`409`, « Trust the woob
 repository first ») :

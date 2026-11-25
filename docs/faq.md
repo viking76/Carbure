@@ -171,7 +171,7 @@ Une question qui n'est pas ici ? Posez-la sur le
 ??? question "Comment fonctionnent les budgets ?"
     Un budget est un **montant par catégorie et par mois** ; une catégorie parente vaut la
     somme de ses sous-catégories, ou son propre montant. Chaque carte montre le reste ou le
-    dépassement, et un bouton recopie les budgets du mois précédent. Tous les utilisateurs
+    dépassement, et un bouton recopie les budgets du mois précédent quand le mois n'en a pas encore. Tous les utilisateurs
     peuvent régler les montants. Voir [Budgets](fonctionnalites.md#budgets).
 
 ??? question "Puis-je créer mes propres indicateurs ?"

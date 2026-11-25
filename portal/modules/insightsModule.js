@@ -31,6 +31,27 @@ export function insightAlertsById(alerts) {
 }
 
 /**
+ * A list with one of its items moved to another place
+ * @param {Array} list - The items
+ * @param {number} from - Index of the item moved
+ * @param {number} to - Its new index (clamped to the list)
+ * @returns {Array} A new list (the same one when nothing moves)
+ */
+export function moveInsight(list, from, to) {
+    const target = Math.max(0, Math.min(list.length - 1, to));
+    if (from < 0 || from >= list.length || from === target) {
+        return list;
+    }
+    const moved = list.slice();
+    const [item] = moved.splice(from, 1);
+    moved.splice(target, 0, item);
+    return moved;
+}
+
+/** Keys moving an insight from its drag handle: offset, or 'first' / 'last' */
+const INSIGHT_MOVE_KEYS = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1, Home: 'first', End: 'last' };
+
+/**
  * Creates an insights module mixin for Vue components
  * @param {Function} getApiService - Function that returns the API service instance
  * @returns {Object} Vue mixin with insights methods
@@ -65,7 +86,15 @@ export function createInsightsModule(getApiService) {
                     'show_chart', 'warning', 'star'],
                 // Check of the query while it is typed: idle, checking, valid, invalid
                 insightCheck: { state: 'idle', amount: null, error: null },
-                insightsController: null
+                insightsController: null,
+                // Drag and drop of the cards: id of the card dragged (null: none), order before the
+                // drag, and what the screen readers announce after a move
+                draggingInsight: null,
+                insightOrderBefore: [],
+                // Last place of the pointer while dragging, checked again once the cards stopped sliding
+                insightPointer: null,
+                insightSettleTimer: null,
+                insightOrderAnnouncement: ''
             };
         },
 
@@ -289,6 +318,115 @@ export function createInsightsModule(getApiService) {
                     this.showToast(this.apiErrorText(error));
                 } finally {
                     this.togglingInsight = null;
+                }
+            },
+
+            /**
+             * Starts dragging a card by its handle (mouse, pen or finger): the card follows the
+             * pointer from cell to cell of the grid, and the order is saved when it is dropped
+             * @param {PointerEvent} event - pointerdown on the handle
+             * @param {Object} insight - The insight dragged
+             */
+            startInsightDrag(event, insight) {
+                if (event.button > 0 || this.draggingInsight !== null) {
+                    return;
+                }
+                event.preventDefault();
+                this.draggingInsight = insight.id;
+                this.insightOrderBefore = this.insights.map(i => i.id);
+                const move = e => this.dragInsightTo(e.clientX, e.clientY);
+                const end = () => {
+                    window.removeEventListener('pointermove', move);
+                    window.removeEventListener('pointerup', end);
+                    window.removeEventListener('pointercancel', end);
+                    this.endInsightDrag();
+                };
+                window.addEventListener('pointermove', move);
+                window.addEventListener('pointerup', end);
+                window.addEventListener('pointercancel', end);
+            },
+
+            /**
+             * Snaps the dragged card to the cell of the card under the pointer
+             * @param {number} x - Pointer abscissa (client)
+             * @param {number} y - Pointer ordinate (client)
+             */
+            dragInsightTo(x, y) {
+                this.insightPointer = { x, y };
+                const target = document.elementFromPoint(x, y)?.closest('.insight-card[data-insight-id]');
+                const targetId = target ? Number(target.dataset.insightId) : null;
+                if (targetId === null || targetId === this.draggingInsight) {
+                    return;
+                }
+                const from = this.insights.findIndex(i => i.id === this.draggingInsight);
+                const to = this.insights.findIndex(i => i.id === targetId);
+                this.insights = moveInsight(this.insights, from, to);
+                // While the cards slide, the one under the pointer may be passing by: the cell
+                // is checked again once they stopped, even if the pointer does not move
+                clearTimeout(this.insightSettleTimer);
+                this.insightSettleTimer = setTimeout(() => {
+                    if (this.draggingInsight !== null && this.insightPointer) {
+                        this.dragInsightTo(this.insightPointer.x, this.insightPointer.y);
+                    }
+                }, 250);
+            },
+
+            /**
+             * Drops the dragged card: saves the order when it changed
+             * @returns {Promise<void>}
+             */
+            async endInsightDrag() {
+                clearTimeout(this.insightSettleTimer);
+                this.insightPointer = null;
+                const insight = this.insights.find(i => i.id === this.draggingInsight);
+                this.draggingInsight = null;
+                const order = this.insights.map(i => i.id);
+                if (insight && order.join(',') !== this.insightOrderBefore.join(',')) {
+                    await this.saveInsightOrder(insight);
+                }
+            },
+
+            /**
+             * Moves a card with the keyboard from its handle: arrows to the previous or next
+             * cell, Home / End to the first or last one; the focus stays on its handle
+             * @param {KeyboardEvent} event - keydown on the handle
+             * @param {Object} insight - The insight moved
+             * @returns {Promise<void>}
+             */
+            async moveInsightByKey(event, insight) {
+                const step = INSIGHT_MOVE_KEYS[event.key];
+                if (step === undefined || this.draggingInsight !== null) {
+                    return;
+                }
+                event.preventDefault();
+                const from = this.insights.findIndex(i => i.id === insight.id);
+                const to = step === 'first' ? 0 : step === 'last' ? this.insights.length - 1 : from + step;
+                const moved = moveInsight(this.insights, from, to);
+                if (moved === this.insights) {
+                    return;
+                }
+                this.insights = moved;
+                this.$nextTick(() => document.querySelector(`.insight-card[data-insight-id="${insight.id}"] .insight-drag`)?.focus());
+                await this.saveInsightOrder(insight);
+            },
+
+            /**
+             * Saves the order of the cards for the whole household, and announces the new
+             * place of the card moved; on a failure, the saved order is shown again
+             * @param {Object} insight - The insight moved
+             * @returns {Promise<void>}
+             */
+            async saveInsightOrder(insight) {
+                try {
+                    await getApiService().setInsightOrder(this.insights.map(i => i.id));
+                    this.insightOrderAnnouncement = this.t('insightMoved', {
+                        name: this.getInsightName(insight.name),
+                        position: this.insights.findIndex(i => i.id === insight.id) + 1,
+                        count: this.insights.length
+                    });
+                } catch (error) {
+                    this.showToast(this.apiErrorText(error));
+                    await this.loadInsights(this.selectedMonth, this.selectedYear);
                 }
             },
 

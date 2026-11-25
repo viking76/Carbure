@@ -2,7 +2,7 @@
 import { mockFetch, json } from './setup.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createInsightsModule } from '../../portal/modules/insightsModule.js';
+import { createInsightsModule, moveInsight } from '../../portal/modules/insightsModule.js';
 import { createApiService } from '../../portal/services/apiService.js';
 
 /** An insights module bound to a fake component */
@@ -28,6 +28,10 @@ function fakeApi(all) {
         fetchInsights: async () => all.filter(i => i.enabled).map(({ enabled, ...i }) => ({ ...i, amount: 10 })),
         fetchDisabledInsights: async () => all.filter(i => !i.enabled).map(({ enabled, ...i }) => i),
         setInsightEnabled: async (id, enabled) => { all.find(i => i.id === id).enabled = enabled; return { id, enabled }; },
+        setInsightOrder: async ids => {
+            all.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
+            return ids;
+        },
     };
 }
 
@@ -167,4 +171,84 @@ test('a refused alert is shown, a failed list of the alerts gives none', async (
     assert.deepEqual(context.toasts, ['Only an enabled insight can alert']);
     assert.notEqual(context.insightAlertForm, null);
     assert.equal(context.savingInsightAlert, false);
+});
+
+test('moves an item of a list, clamped to its bounds (#467)', () => {
+    const list = ['a', 'b', 'c', 'd'];
+    assert.deepEqual(moveInsight(list, 0, 2), ['b', 'c', 'a', 'd']);
+    assert.deepEqual(moveInsight(list, 3, 0), ['d', 'a', 'b', 'c']);
+    assert.deepEqual(moveInsight(list, 1, 99), ['a', 'c', 'd', 'b']);
+    assert.deepEqual(moveInsight(list, 1, -5), ['b', 'a', 'c', 'd']);
+    // Nothing moves: the same list
+    assert.equal(moveInsight(list, 2, 2), list);
+    assert.equal(moveInsight(list, 7, 0), list);
+    assert.deepEqual(list, ['a', 'b', 'c', 'd']);
+});
+
+test('moves a card with the keyboard from its handle, saves and announces the order (#467)', async () => {
+    const all = [{ id: 1, name: 'Dépenses', enabled: true }, { id: 2, name: 'Retraits', enabled: true }, { id: 3, name: 'Loyer', enabled: true }];
+    const context = insightsContext(fakeApi(all));
+    await context.loadInsights(10, 2026);
+    const key = k => ({ key: k, prevented: false, preventDefault() { this.prevented = true; } });
+
+    let event = key('ArrowRight');
+    await context.moveInsightByKey(event, context.insights[0]);
+    assert.equal(event.prevented, true);
+    assert.deepEqual(context.insights.map(i => i.id), [2, 1, 3]);
+    assert.deepEqual(all.map(i => i.id), [2, 1, 3]);
+    assert.equal(context.insightOrderAnnouncement, 'insightMoved {"name":"Dépenses","position":2,"count":3}');
+
+    await context.moveInsightByKey(key('Home'), context.insights[2]);
+    assert.deepEqual(context.insights.map(i => i.id), [3, 2, 1]);
+    await context.moveInsightByKey(key('End'), context.insights[0]);
+    assert.deepEqual(context.insights.map(i => i.id), [2, 1, 3]);
+
+    // Already first, or another key: nothing moves nor is saved
+    const before = context.insights;
+    await context.moveInsightByKey(key('ArrowUp'), context.insights[0]);
+    event = key('Tab');
+    await context.moveInsightByKey(event, context.insights[1]);
+    assert.equal(event.prevented, false);
+    assert.equal(context.insights, before);
+});
+
+test('a refused order is shown and the saved order comes back (#467)', async () => {
+    const all = [{ id: 1, name: 'Dépenses', enabled: true }, { id: 2, name: 'Retraits', enabled: true }];
+    const api = { ...fakeApi(all), setInsightOrder: async () => { throw new Error('refused'); } };
+    const context = insightsContext(api);
+    await context.loadInsights(10, 2026);
+
+    await context.moveInsightByKey({ key: 'ArrowDown', preventDefault() {} }, context.insights[0]);
+    assert.deepEqual(context.toasts, ['refused']);
+    assert.deepEqual(context.insights.map(i => i.id), [1, 2]);
+});
+
+test('a card dropped where it was is not saved (#467)', async () => {
+    let saved = 0;
+    const all = [{ id: 1, name: 'Dépenses', enabled: true }, { id: 2, name: 'Retraits', enabled: true }];
+    const context = insightsContext({ ...fakeApi(all), setInsightOrder: async ids => { saved++; return ids; } });
+    await context.loadInsights(10, 2026);
+
+    context.draggingInsight = 1;
+    context.insightOrderBefore = [1, 2];
+    await context.endInsightDrag();
+    assert.equal(saved, 0);
+    assert.equal(context.draggingInsight, null);
+
+    // Moved while dragged: saved once dropped
+    context.draggingInsight = 1;
+    context.insightOrderBefore = [1, 2];
+    context.insights = moveInsight(context.insights, 0, 1);
+    await context.endInsightDrag();
+    assert.equal(saved, 1);
+});
+
+test('the API of the order of the insights (#467)', async () => {
+    const base = 'https://carbure.example.com/api';
+    const calls = mockFetch(() => json([2, 1]));
+    const api = createApiService(base, 't');
+    assert.deepEqual(await api.setInsightOrder([2, 1]), [2, 1]);
+    assert.equal(calls[0].url, `${base}/insight/order`);
+    assert.equal(calls[0].options.method, 'PUT');
+    assert.deepEqual(JSON.parse(calls[0].options.body), { ids: [2, 1] });
 });

@@ -72,6 +72,7 @@ CREATE TABLE `bank_transaction` (
   `rdate` date NOT NULL COMMENT 'Transaction real date',
   `type` tinyint(3) unsigned NOT NULL COMMENT 'Type of transaction : Cheque, virement ...',
   `label` varchar(300) NOT NULL COMMENT 'Label for the transaction',
+  `comment` varchar(500) DEFAULT NULL COMMENT 'Free-text comment of the household (NULL: none)',
   `category` tinyint(3) unsigned NOT NULL DEFAULT 0 COMMENT 'Category of the transaction',
   `category_source` varchar(10) DEFAULT NULL COMMENT 'Origin of the category: rule, manual (NULL: unknown)',
   `amount` decimal(10,2) NOT NULL COMMENT 'Amount in currency for this transaction',
@@ -151,9 +152,11 @@ CREATE TABLE `bank_transaction_category_keyword` (
   `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
   `keyword` varchar(60) NOT NULL,
   `category` tinyint(3) unsigned NOT NULL,
+  `amount` decimal(10,2) DEFAULT NULL COMMENT 'Absolute amount of the transactions matched (NULL: any amount)',
   `notify` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Push to the household when a new transaction matches',
+  `amount_key` decimal(10,2) AS (IFNULL(`amount`, 0)) PERSISTENT COMMENT 'Amount of the rule for its unique key (0: any amount)',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `keyword` (`keyword`),
+  UNIQUE KEY `keyword` (`keyword`, `amount_key`),
   KEY `keyword_category` (`category`),
   CONSTRAINT `fk_keyword_category` FOREIGN KEY (`category`) REFERENCES `bank_transaction_category` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -166,6 +169,7 @@ CREATE TABLE `budget` (
   `category` tinyint(3) unsigned NOT NULL,
   `amount` decimal(10,2) NOT NULL,
   `date` date NOT NULL,
+  `note` varchar(200) DEFAULT NULL COMMENT 'Reminder of what the budget covers (NULL: none)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `category` (`category`,`date`),
   CONSTRAINT `fk_budget_category` FOREIGN KEY (`category`) REFERENCES `bank_transaction_category` (`id`)
@@ -181,6 +185,7 @@ CREATE TABLE `budget_insight` (
   `icon` varchar(50) DEFAULT NULL COMMENT 'Material icon (default: chosen from the name)',
   `sql` varchar(500) NOT NULL,
   `enabled` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Shown in the Insights tab (0: offered by its + button)',
+  `position` smallint(5) unsigned NOT NULL DEFAULT 0 COMMENT 'Place in the Insights tab (sorted by position, then id)',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -423,7 +428,11 @@ INSERT IGNORE INTO `schema_migrations` (`version`) VALUES
 ('2026-11-01_insight_enabled'),
 ('2026-11-02_category_source'),
 ('2026-11-03_insight_alert'),
-('2026-11-04_insight_largest_expense');
+('2026-11-04_insight_largest_expense'),
+('2026-11-05_rule_amount'),
+('2026-11-06_budget_note'),
+('2026-11-07_insight_position'),
+('2026-11-19_transaction_comment');
 
 SET FOREIGN_KEY_CHECKS = 1;
 COMMIT;

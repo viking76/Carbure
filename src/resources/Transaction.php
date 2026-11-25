@@ -19,6 +19,7 @@ use Carbure\Lib\Db;
 use Carbure\Lib\Jwt;
 use Carbure\Lib\Logger;
 use Carbure\Lib\Month;
+use Carbure\Lib\SpendingAnalysis;
 use Carbure\Lib\TransactionSearch;
 use Carbure\Lib\Webservice;
 use DateTime;
@@ -57,8 +58,19 @@ final class Transaction {
      *  by hand), never overwritten by the rules */
     const SOURCE_MANUAL = 'manual';
 
+    /** Start of the UUID of a transaction entered by hand: never one of a bank (an md5, in
+     *  hexadecimal), so that it is still told apart on a synchronized account, which a
+     *  synchronization never overwrites (it merges on the UUID only) */
+    const MANUAL_UUID = 'manual';
+
     /** Whether the migration 2026-11-02_category_source is applied (read once per request) */
     private static ?bool $sourceReady = null;
+
+    /** Longest comment of a transaction, in characters */
+    public const COMMENT_LENGTH = 500;
+
+    /** Whether the migration 2026-11-19_transaction_comment is applied (read once per request) */
+    private static ?bool $commentReady = null;
 
     /** SQL amount of the transaction t as the bank gave it: its own one plus the one of its parts */
     const BANK_AMOUNT = "(t.amount + COALESCE((SELECT SUM(p.amount) FROM bank_transaction p WHERE p.split_of = t.id), 0))";
@@ -73,6 +85,19 @@ final class Transaction {
     {
         return self::$sourceReady ??= Db::queryOne("SELECT 1 FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bank_transaction' AND COLUMN_NAME = 'category_source'", "") !== null;
+    }
+
+    /**
+     * Check if the transactions have their comment: the migration
+     * 2026-11-19_transaction_comment is applied (before it, the column does not exist and
+     * the transactions are returned without comment).
+     *
+     * @return bool
+     */
+    public static function commentReady(): bool
+    {
+        return self::$commentReady ??= Db::queryOne("SELECT 1 FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bank_transaction' AND COLUMN_NAME = 'comment'", "") !== null;
     }
 
     /**
@@ -96,16 +121,22 @@ final class Transaction {
      * @param int|string|null $month    The month of the transactions
      * @param int|string|null $year     The year of the transactions
      * @param int|string|null $category Only this category and its sub-categories (optional)
+     * @param bool|int|string|null $own With a category: only the transactions put on the category itself,
+     *                                   not on its sub-categories ("true"/"1" from a query string)
      * @return list<array<string, mixed>> The list of transactions, with the ids of their tags
      */
     #[ApiRoute('/transaction', method: 'GET')]
-    public static function get(int|string|null $month = null, int|string|null $year = null, int|string|null $category = null): array
+    public static function get(int|string|null $month = null, int|string|null $year = null, int|string|null $category = null,
+        bool|int|string|null $own = false): array
     {
         [$from, $to] = Month::range($month, $year);
 
         if ($category === null || $category === '') {
             $sql = "SELECT * FROM bank_transaction WHERE date >= ? AND date < ? ORDER BY rdate DESC";
             $stmt = Db::execute($sql, "ss", $from, $to);
+        } elseif (filter_var($own, FILTER_VALIDATE_BOOLEAN)) {
+            $sql = "SELECT * FROM bank_transaction WHERE date >= ? AND date < ? AND category = ? ORDER BY rdate DESC";
+            $stmt = Db::execute($sql, "ssi", $from, $to, $category);
         } else {
             $sql = "SELECT * FROM bank_transaction WHERE date >= ? AND date < ?
                     AND (category = ? OR category IN (SELECT id FROM bank_transaction_category WHERE parent_category = ? AND id <> 0))
@@ -127,11 +158,11 @@ final class Transaction {
     }
 
     /**
-     * Search transactions of every period, most recent first: by label ("#name" gives the
+     * Search transactions of every period, most recent first: by label or comment ("#name" gives the
      * transactions of the tag of this name) and by the criteria of the advanced search. Each
      * criterion is optional, at least one is needed.
      *
-     * @param string|null           $query      The text to find in the label (2 characters minimum), or #tag
+     * @param string|null           $query      The text to find in the label or the comment (2 characters minimum), or #tag
      * @param int|string            $limit      The maximum number of transactions (1 to 500)
      * @param int|float|string|null $min        Smallest amount, without sign (50: an expense of -50 or an income of 50)
      * @param int|float|string|null $max        Largest amount, without sign
@@ -140,15 +171,18 @@ final class Transaction {
      * @param string|null           $accounts   Accounts, comma-separated bankIds (account_number@bank_name, see GET /bank)
      * @param string|null           $from       First day (YYYY-MM-DD)
      * @param string|null           $to         Last day (YYYY-MM-DD)
+     * @param string|null           $in         "label": the text in the label only, not in the comment
+     *                                          (the transactions similar to one); else both
      * @return list<array<string, mixed>> The list of transactions, with the ids of their tags
      * @throws Error If there is no criterion, the query is too short or a criterion is invalid (400)
      */
     #[ApiRoute('/transaction/search', method: 'GET')]
     public static function search(?string $query = null, int|string $limit = 100, int|float|string|null $min = null,
         int|float|string|null $max = null, ?string $kind = null, ?string $categories = null, ?string $accounts = null,
-        ?string $from = null, ?string $to = null): array
+        ?string $from = null, ?string $to = null, ?string $in = null): array
     {
-        [$where, $types, $params] = (new TransactionSearch($query, $min, $max, $kind, $categories, $accounts, $from, $to))->where();
+        [$where, $types, $params] = (new TransactionSearch($query, $min, $max, $kind, $categories, $accounts, $from, $to,
+            $in === 'label'))->where();
         $limit = max(1, min(500, (int)$limit));
 
         $sql = "SELECT b.* FROM bank_transaction b WHERE $where ORDER BY b.date DESC, b.rdate DESC LIMIT ?";
@@ -239,9 +273,9 @@ final class Transaction {
     {
         $groups = [];
         foreach ($rows as $row) {
-            $name = trim(preg_replace('/[^\p{L}]+/u', ' ', preg_replace('/\d+/', '', (string)$row['label']) ?? '') ?? '');
-            if ($name !== '') {
-                $groups[((float)$row['amount'] < 0 ? '-' : '+') . $name][] = $row;
+            $key = SpendingAnalysis::seriesKey((string)$row['label'], $row['amount']);
+            if ($key !== '') {
+                $groups[$key][] = $row;
             }
         }
         return $groups;
@@ -337,7 +371,9 @@ final class Transaction {
             Logger::warn("$unlabeled transactions without a label (raw and label empty) from "
                 . ($origin['bank_name'] ?? 'a file') . ": check the woob module");
         }
-        return self::store($rows, $userId, $origin);
+        // Labels changed by the woob module (setting woob_relabel): the transaction saved takes them.
+        // Only for a synchronization: never for a file imported on that account
+        return self::store($rows, $userId, $origin, TransactionRelabel::apply(array_values($rows), $userId, $origin));
     }
 
     /**
@@ -346,12 +382,13 @@ final class Transaction {
      * @param array<array<string, mixed>> $rows   The transactions, as returned by prepareAll(), with
      *                                            their raw label to send it as a progress event
      * @param int                         $userId The user owning the transactions
-     * @param array<string, string|null>  $origin bank_name and account_number of the account they come from
+     * @param array<string, string|null>  $origin    bank_name and account_number of the account they come from
+     * @param array<string, true>         $relabeled UUIDs that relabeled a saved transaction (TransactionRelabel): not saved
      * @return list<array{label: string, amount: float, uuid: string, date: string|null}> The transactions
      *              that were not known yet (label cleaned, amount, uuid, real date); the deleted ones
      *              are skipped
      */
-    private static function store(array $rows, int $userId, array $origin = []): array
+    private static function store(array $rows, int $userId, array $origin = [], array $relabeled = []): array
     {
         $created = [];
         // Deleted by a user: never saved again
@@ -361,7 +398,7 @@ final class Transaction {
             if (isset($row['raw'])) {
                 Webservice::sendProgress($row['raw']);
             }
-            if (!isset($deleted[$row['uuid']]) && !($repair && self::relabel($row, $userId, $origin))
+            if (!isset($deleted[$row['uuid']]) && !isset($relabeled[$row['uuid']]) && !($repair && self::relabel($row, $userId, $origin))
                 && self::create($row, $userId, $origin)) {
                 $created[] = ['label' => $row['label'], 'amount' => (float)$row['amount'], 'uuid' => $row['uuid'],
                     'date' => $row['rdate'] ?? $row['date'] ?? null];
@@ -415,7 +452,7 @@ final class Transaction {
         Db::execute("UPDATE bank_transaction SET label = ?, card = ? WHERE split_of = ?", "ssi",
             $row['label'], $row['card'], $unlabeled['id']);
         Changes::touch('transactions');
-        $category = (int)$unlabeled['category'] === 0 ? Category::find($row['label']) : null;
+        $category = (int)$unlabeled['category'] === 0 ? Category::find($row['label'], null, $row['amount']) : null;
         if ($category !== null) {
             self::setCategory((int)$unlabeled['id'], $category, self::SOURCE_RULE);
         }
@@ -557,13 +594,17 @@ final class Transaction {
      * @param string|null                           $filename The name of the file
      * @param array<int|string>|int|string|null     $selected Indexes of the rows to import (by default:
      *                                                        the new ones)
+     * @param int|string|null                       $account  Account of the transactions (id of GET /bank); by
+     *                                                        default the account number read in the file, if any
      * @return array{imported: int, categorized: int, from: string|null, to: string|null}
      *              imported (number of new transactions), categorized, from, to
-     * @throws Error If the file is not understood
+     * @throws Error If the file is not understood, or the account does not exist (404)
      */
     #[ApiRoute('/transaction/import', method: 'POST', changes: ['transactions'])]
-    public static function import(?string $file, ?string $filename = null, array|int|string|null $selected = null): array
+    public static function import(?string $file, ?string $filename = null, array|int|string|null $selected = null,
+        int|string|null $account = null): array
     {
+        $origin = self::importOrigin($account);
         [$parsed, $rows, $prepared] = self::analyzeImport($file ?? '', $filename);
         $selected = $selected === null ? null : array_map('intval', (array)$selected);
 
@@ -576,7 +617,7 @@ final class Transaction {
             }
         }
 
-        $created = self::store($data, (int)Jwt::getUserIdFromToken(), ['account_number' => $parsed['account']]);
+        $created = self::store($data, (int)Jwt::getUserIdFromToken(), $origin ?? ['account_number' => $parsed['account']]);
 
         // The rules categorize the new transactions, whatever their date
         $categorized = self::categorizeImported($created);
@@ -598,6 +639,27 @@ final class Transaction {
     }
 
     /**
+     * Account chosen for the transactions of an imported file.
+     *
+     * @param int|string|null $account Id of the account (bank_account), null or "" for none
+     * @return array{bank_name: string, account_number: string|null}|null Its bank and number (null for an
+     *              account without number, as its synchronized transactions), null when none was chosen
+     * @throws Error If the account does not exist (404)
+     */
+    private static function importOrigin(int|string|null $account): ?array
+    {
+        if ($account === null || $account === '') {
+            return null;
+        }
+        $bank = Db::queryOne("SELECT bank_name, account_number FROM bank_account WHERE id = ?", "i", (int)$account);
+        if ($bank === null) {
+            throw new ApiError("Account not found", 404, 'account_not_found');
+        }
+        $number = $bank['account_number'];
+        return ['bank_name' => (string)$bank['bank_name'], 'account_number' => $number === null ? null : (string)$number];
+    }
+
+    /**
      * Categorize imported transactions with the rules (those still without category).
      *
      * @param list<array{label: string, amount: float, uuid: string}> $created The new transactions
@@ -608,7 +670,7 @@ final class Transaction {
         $categorized = 0;
         $keywords = Category::loadKeywords();
         foreach ($created as $transaction) {
-            $category = Category::find($transaction['label'], $keywords);
+            $category = Category::find($transaction['label'], $keywords, $transaction['amount']);
             if ($category !== null) {
                 Db::execute("UPDATE bank_transaction SET category = ?" . self::sourceSql(self::SOURCE_RULE)
                     . " WHERE uuid = ? AND category = 0", "is", $category, $transaction['uuid']);
@@ -942,7 +1004,7 @@ final class Transaction {
             $label = (string)$row["label"];
 
             // Get the category
-            $category = Category::find($label, $keywords);
+            $category = Category::find($label, $keywords, $row['amount']);
 
             // A category has been found we update the transaction
             if ($category !== null) {
@@ -978,6 +1040,44 @@ final class Transaction {
     }
 
     /**
+     * Set one category, chosen by hand, on several transactions at once (a selection of the
+     * list), all or none: the rules never overwrite it. Like a single change, it also
+     * points them, with the parts of the split ones.
+     *
+     * @param array<mixed>         $ids         The ids of the transactions (at most Tag::MAX_SELECTION)
+     * @param int|string           $category    The category to set (0: uncategorized)
+     * @param bool|int|string|null $autoPointed Whether to auto-point the transactions (true by default)
+     * @return array{updated: int} The number of transactions whose category changed
+     * @throws Error If an id is invalid (400), the selection too large (400) or the category unknown (404)
+     */
+    #[ApiRoute('/transaction/categories', method: 'PUT', changes: ['transactions'])]
+    public static function updateCategories(array $ids, int|string $category, bool|int|string|null $autoPointed = true): array
+    {
+        $ids = Tag::idList($ids);
+        if ($ids === [] || count($ids) > Tag::MAX_SELECTION) {
+            throw new ApiError("Select 1 to " . Tag::MAX_SELECTION . " transactions", 400, 'tag_selection_limit', ['max' => Tag::MAX_SELECTION]);
+        }
+        $category = self::existingCategory($category);
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids));
+
+        $db = Db::getConnection();
+        $db->begin_transaction();
+        try {
+            $updated = Db::execute("UPDATE bank_transaction SET category = ?" . self::sourceSql(self::SOURCE_MANUAL)
+                . " WHERE id IN ($in)", "i$types", $category, ...$ids)->affected_rows;
+            if (filter_var($autoPointed, FILTER_VALIDATE_BOOLEAN)) {
+                Db::execute("UPDATE bank_transaction SET pointed = 1 WHERE id IN ($in) OR split_of IN ($in)", "$types$types", ...$ids, ...$ids);
+            }
+            $db->commit();
+        } catch (Exception $e) {
+            $db->rollback();
+            throw $e;
+        }
+        return ['updated' => (int)$updated];
+    }
+
+    /**
      * Set a category on a transaction, with its origin.
      *
      * @param int|string $id       The id of the transaction
@@ -1005,6 +1105,119 @@ final class Transaction {
         // Update the pointed field on a transaction
         $sql = "UPDATE bank_transaction SET pointed=? WHERE id=? OR split_of=?";
         Db::execute($sql, "iii", filter_var($pointed, FILTER_VALIDATE_BOOLEAN) ? 1 : 0, $id, $id);
+    }
+
+    /**
+     * Set the free-text comment of a transaction (synchronized, imported, entered by hand or
+     * a part of a split one). The synchronization and the import never change it.
+     *
+     * @param int|string  $id      The id of the transaction
+     * @param string|null $comment The comment (500 characters at most, trimmed); "" or null removes it
+     * @return array<string, mixed> The transaction, with the ids of its tags
+     * @throws Error If the transaction does not exist (404), the comment is too long (400), or
+     *               sent before the migration 2026-11-19_transaction_comment (409)
+     */
+    #[ApiRoute('/transaction/comment', method: 'PUT', changes: ['transactions'])]
+    public static function updateComment(int|string $id, ?string $comment = null): array
+    {
+        $transaction = self::manualRow($id);
+        self::saveComment($transaction['id'], self::commentToStore($comment));
+        return Tag::withTags([self::manualRow($id)])[0];
+    }
+
+    /**
+     * A comment sent by a user, checked before anything is written: trimmed, null when empty
+     * or not sent.
+     *
+     * @param string|null $comment The comment sent
+     * @return string|null The comment to store, null for none
+     * @throws Error If it is too long (400), or not empty before the migration
+     *               2026-11-19_transaction_comment (409)
+     */
+    private static function commentToStore(?string $comment): ?string
+    {
+        $comment = self::comment((string)$comment);
+        if ($comment !== null && !self::commentReady()) {
+            throw new ApiError("The comment of the transactions needs the pending database migrations", 409,
+                'transaction_comment_migration');
+        }
+        return $comment;
+    }
+
+    /**
+     * Store the comment of a transaction (nothing to store before the migration
+     * 2026-11-19_transaction_comment: commentToStore() only lets null through then).
+     *
+     * @param mixed       $id      The id of the transaction
+     * @param string|null $comment The comment checked by commentToStore(), null for none
+     * @return void
+     */
+    private static function saveComment(mixed $id, ?string $comment): void
+    {
+        if (self::commentReady()) {
+            Db::execute("UPDATE bank_transaction SET comment = ? WHERE id = ?", "si", $comment, $id);
+        }
+    }
+
+    /**
+     * A comment of a transaction as stored: trimmed, null when empty.
+     *
+     * @param string $comment The comment sent
+     * @return string|null The comment, null for none
+     * @throws Error If it is longer than COMMENT_LENGTH characters (400)
+     */
+    private static function comment(string $comment): ?string
+    {
+        $comment = trim($comment);
+        if (mb_strlen($comment) > self::COMMENT_LENGTH) {
+            throw new ApiError("The comment of a transaction has " . self::COMMENT_LENGTH . " characters at most", 400,
+                'transaction_comment_length', ['max' => self::COMMENT_LENGTH]);
+        }
+        return $comment === '' ? null : $comment;
+    }
+
+    /**
+     * Change the date a transaction is counted on (its month, for the totals and the
+     * budgets), synchronized or not: the real date of the bank (rdate) and the UUID are
+     * kept, so that a synchronization or an import merges it again without changing this
+     * date (they never update the date of a known transaction). The parts of a split
+     * transaction follow it: the date of a part is the one of its transaction.
+     *
+     * @param int|string $id   The id of the transaction (or of a part of it)
+     * @param string     $date The new date (YYYY-MM-DD)
+     * @return array<string, mixed> The transaction of the id given
+     * @throws Error If it does not exist (404) or the date is invalid (400)
+     */
+    #[ApiRoute('/transaction/date', method: 'PUT', changes: ['transactions'])]
+    public static function updateDate(int|string $id, string $date): array
+    {
+        self::checkDate($date);
+        $transaction = self::manualRow($id);
+        $parent = $transaction['split_of'] ?? $transaction['id'];
+
+        Db::execute("UPDATE bank_transaction SET date = ? WHERE id = ? OR split_of = ?", "sii", $date, $parent, $parent);
+        // Moved into the current month: a budget may be exceeded now
+        $current = date('Y-m');
+        if (substr($date, 0, 7) === $current && substr((string)$transaction['date'], 0, 7) !== $current) {
+            BudgetAlert::check();
+            InsightAlert::check();
+        }
+        return Tag::withTags([self::manualRow($id)])[0];
+    }
+
+    /**
+     * Check a date sent by a user.
+     *
+     * @param string $date The date (YYYY-MM-DD, a real day)
+     * @return void
+     * @throws Error If it is invalid (400)
+     */
+    private static function checkDate(string $date): void
+    {
+        $parsed = DateTime::createFromFormat('!Y-m-d', $date);
+        if ($parsed === false || $parsed->format('Y-m-d') !== $date) {
+            throw new ApiError("Invalid date (YYYY-MM-DD)", 400, 'transaction_date_invalid');
+        }
     }
 
     /**
@@ -1094,13 +1307,21 @@ final class Transaction {
     {
         $id = (int)$transaction['id'];
         $rest = (int)$transaction['bank_cents'] - array_sum(array_column($parts, 1));
+        // The parts are re-created: their comments follow them, by their UUID (same index)
+        $comments = [];
+        if (self::commentReady()) {
+            foreach (Db::select("SELECT uuid, comment FROM bank_transaction WHERE split_of = ? AND comment IS NOT NULL", "i", $id) as $row) {
+                $comments[$row['uuid']] = $row['comment'];
+            }
+        }
         $db = Db::getConnection();
         $db->begin_transaction();
         try {
             Db::execute("DELETE FROM bank_transaction WHERE split_of = ?", "i", $id);
             Db::execute("UPDATE bank_transaction SET amount = ? WHERE id = ?", "si", sprintf('%.2f', $rest / 100), $id);
             foreach ($parts as $index => [$category, $cents]) {
-                $part = self::insertRow(['split_of' => $id, 'uuid' => md5($transaction['uuid'] . '#split' . ($index + 1)),
+                $uuid = md5($transaction['uuid'] . '#split' . ($index + 1));
+                $part = self::insertRow(['split_of' => $id, 'uuid' => $uuid, 'comment' => $comments[$uuid] ?? null,
                     'category' => $category, 'category_source' => self::SOURCE_MANUAL,
                     'amount' => sprintf('%.2f', $cents / 100)] + $transaction);
                 // A part of a project stays in it; its tags may then change apart
@@ -1114,37 +1335,40 @@ final class Transaction {
     }
 
     /**
-     * Enter a transaction by hand on a manual account (cash, a bank woob does not support):
-     * checked, of the category given or else of the rules. It stays editable (PUT /transaction).
+     * Enter a transaction by hand on an account: a manual one (cash, a bank woob does not
+     * support) or a synchronized one (a transaction the bank does not send yet; a duplicate
+     * is possible when it does). Checked, of the category given or else of the rules, it
+     * stays editable (PUT /transaction) and is never overwritten by a synchronization.
      *
-     * @param int|string      $account  The id of a manual account
+     * @param int|string      $account  The id of an account of the household
      * @param string          $date     Its date (YYYY-MM-DD)
      * @param string          $label    Its label
      * @param int|float|string $amount  Its amount: negative for an expense
      * @param int|string|null $category Its category (optional: the rules, else none)
+     * @param string|null     $comment  Its comment (optional, 500 characters at most)
      * @return array<string, mixed> The transaction
-     * @throws Error If the account is not a manual one, a value is invalid (400) or the account
-     *               or the category does not exist (404)
+     * @throws Error If a value is invalid (400), the account or the category does not exist (404),
+     *               or a comment is sent before the migration 2026-11-19_transaction_comment (409)
      */
     #[ApiRoute('/transaction', method: 'POST', changes: ['transactions'])]
     public static function createManual(int|string $account, string $date, string $label, int|float|string $amount,
-                                  int|string|null $category = null): array
+                                  int|string|null $category = null, ?string $comment = null): array
     {
         $bank = Db::queryOne("SELECT account_number, bank_name FROM bank_account WHERE id = ?", "i", $account);
         if (!$bank) {
             throw new ApiError("Account not found", 404, 'account_not_found');
         }
-        if ($bank['bank_name'] !== Bank::MANUAL) {
-            throw new ApiError("Transactions are entered by hand on a manual account only", 400, 'account_not_manual');
-        }
         $fields = self::manualFields($date, $label, $amount);
+        // Checked before the insert: a refused comment enters nothing
+        $comment = self::commentToStore($comment);
         $chosen = $category !== null && $category !== '';
-        $category = $chosen ? self::existingCategory($category) : (Category::find($fields['label']) ?? 0);
+        $category = $chosen ? self::existingCategory($category) : (Category::find($fields['label'], null, $fields['amount']) ?? 0);
         $source = $chosen ? self::SOURCE_MANUAL : ($category !== 0 ? self::SOURCE_RULE : null);
 
-        $id = self::insertRow(['split_of' => null, 'uuid' => md5('manual#' . random_bytes(16)), 'rdate' => $fields['date'],
-            'type' => 8, 'category' => $category, 'category_source' => $source, 'card' => '', 'bank_name' => Bank::MANUAL,
-            'account_number' => $bank['account_number'], 'pointed' => 1, 'user' => (int)Jwt::getUserIdFromToken()] + $fields);
+        $id = self::insertRow(['split_of' => null, 'uuid' => self::manualUuid(), 'rdate' => $fields['date'],
+            'type' => 8, 'category' => $category, 'category_source' => $source, 'card' => '', 'bank_name' => $bank['bank_name'],
+            'account_number' => $bank['account_number'], 'pointed' => 1, 'user' => (int)Jwt::getUserIdFromToken(),
+            'comment' => $comment] + $fields);
         if (substr($fields['date'], 0, 7) === date('Y-m')) {
             BudgetAlert::check();
             InsightAlert::check();
@@ -1160,15 +1384,18 @@ final class Transaction {
      * @param string|null           $date   Its new date (YYYY-MM-DD)
      * @param string|null           $label  Its new label
      * @param int|float|string|null $amount Its new amount
+     * @param string|null           $comment Its new comment (500 characters at most): "" removes it,
+     *                                       null (not sent: mobile apps) keeps the current one
      * @return array<string, mixed> The transaction
-     * @throws Error If it does not exist (404), was not entered by hand or a value is invalid (400)
+     * @throws Error If it does not exist (404), was not entered by hand or a value is invalid (400),
+     *               or a comment is sent before the migration 2026-11-19_transaction_comment (409)
      */
     #[ApiRoute('/transaction', method: 'PUT', changes: ['transactions'])]
     public static function updateManual(int|string $id, ?string $date = null, ?string $label = null,
-                                  int|float|string|null $amount = null): array
+                                  int|float|string|null $amount = null, ?string $comment = null): array
     {
         $transaction = self::manualRow($id);
-        if ($transaction['bank_name'] !== Bank::MANUAL || $transaction['split_of'] !== null) {
+        if (!self::enteredByHand($transaction)) {
             throw new ApiError("Only a transaction entered by hand can be changed", 400, 'transaction_not_manual');
         }
         $fields = self::manualFields($date ?? $transaction['date'], $label ?? stripslashes($transaction['label']),
@@ -1177,12 +1404,39 @@ final class Transaction {
             && Db::queryOne("SELECT id FROM bank_transaction WHERE split_of = ? LIMIT 1", "i", $id)) {
             throw new ApiError("The amount of a split transaction cannot be changed", 400, 'transaction_split_amount');
         }
+        $stored = self::commentToStore($comment);
 
         Db::execute("UPDATE bank_transaction SET date = ?, rdate = ?, label = ?, amount = ? WHERE id = ?", "ssssi",
             $fields['date'], $fields['date'], $fields['label'], $fields['amount'], $id);
         Db::execute("UPDATE bank_transaction SET date = ?, rdate = ?, label = ? WHERE split_of = ?", "sssi",
             $fields['date'], $fields['date'], $fields['label'], $id);
+        if ($comment !== null) {
+            self::saveComment($id, $stored);
+        }
         return Tag::withTags([self::manualRow($id)])[0];
+    }
+
+    /**
+     * A new UUID of a transaction entered by hand: MANUAL_UUID then random hexadecimal digits.
+     *
+     * @return string 32 characters
+     */
+    private static function manualUuid(): string
+    {
+        return self::MANUAL_UUID . substr(md5(random_bytes(16)), strlen(self::MANUAL_UUID));
+    }
+
+    /**
+     * Whether a transaction was entered by hand (not a part of a split one): its UUID starts
+     * with MANUAL_UUID, or it is on a manual account (entered before MANUAL_UUID).
+     *
+     * @param array<string, mixed> $transaction Its row
+     * @return bool
+     */
+    public static function enteredByHand(array $transaction): bool
+    {
+        return $transaction['split_of'] === null && ($transaction['bank_name'] === Bank::MANUAL
+            || str_starts_with((string)$transaction['uuid'], self::MANUAL_UUID));
     }
 
     /**
@@ -1246,17 +1500,23 @@ final class Transaction {
      * Insert a transaction that does not come from a bank (a part of a split one, one entered by hand).
      *
      * @param array<string, mixed> $row split_of, uuid, date, rdate, type, label (cleaned), category,
-     *                                  category_source, amount, card, bank_name, account_number, pointed, user
+     *                                  category_source, amount, card, bank_name, account_number, pointed, user,
+     *                                  comment (checked by commentToStore(), null for none)
      * @return int The id of the transaction
      */
     private static function insertRow(array $row): int
     {
+        // In the same INSERT: a transaction is never stored without its comment
+        $comment = self::commentReady() ? ", comment = ?" : "";
         $sql = "INSERT INTO bank_transaction SET split_of = ?, uuid = ?, date = ?, rdate = ?, type = ?, label = ?,
                     category = ?" . self::sourceSql($row['category_source'] ?? null) . ", amount = ?, card = ?,
-                    bank_name = ?, account_number = ?, pointed = ?, user = ?";
-        $stmt = Db::execute($sql, "isssisissssii", $row['split_of'], $row['uuid'], $row['date'], $row['rdate'],
-            $row['type'], $row['label'], $row['category'], $row['amount'], $row['card'], $row['bank_name'],
-            $row['account_number'], $row['pointed'], $row['user']);
+                    bank_name = ?, account_number = ?, pointed = ?, user = ?" . $comment;
+        $params = [$row['split_of'], $row['uuid'], $row['date'], $row['rdate'], $row['type'], $row['label'],
+            $row['category'], $row['amount'], $row['card'], $row['bank_name'], $row['account_number'], $row['pointed'], $row['user']];
+        if ($comment !== '') {
+            $params[] = $row['comment'] ?? null;
+        }
+        $stmt = Db::execute($sql, "isssisissssii" . ($comment !== '' ? 's' : ''), ...$params);
         return (int)$stmt->insert_id;
     }
 

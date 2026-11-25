@@ -1,7 +1,7 @@
 // Accessibility beyond the contrasts (see accessibility.spec.js): the WCAG 2.2 A/AA rules
 // of axe-core on every screen, the reflow at 320 CSS px (1.4.10), the zoom at 200 %
 // (1.4.4) and the text spacing (1.4.12)
-const { test, expect, tr, openTab, clickMainTab, trustWoobRepository, chooseLanguage, asDemoInstance } = require('../fixtures');
+const { test, expect, tr, openTab, currentMonth, offerBudgetCopy, clickMainTab, trustWoobRepository, chooseLanguage, asDemoInstance } = require('../fixtures');
 const { axeViolations, reflowProblems, clippedTexts, TEXT_SPACING, WCAG_TAGS } = require('../axe');
 const { AxeBuilder } = require('@axe-core/playwright');
 
@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
 
 /** Tabs of the main navigation (administrators), then those of the Administration menu */
 const MAIN_TABS = ['tabTransactions', 'tabBudget', 'tabInsights', 'tabTrends', 'tabTags', 'tabRules', 'tabAccounts'];
-const ADMIN_TABS = ['tabUsers', 'tabCategories', 'tabSync', 'tabPush', 'tabAgents', 'tabLogs', 'tabSettings', 'tabBackup'];
+const ADMIN_TABS = ['tabUsers', 'tabCategories', 'tabSync', 'tabPush', 'tabAgents', 'tabLogs', 'tabSettings', 'tabBackup', 'tabPurge'];
 /** Tabs of a user who is not an administrator */
 const USER_TABS = ['tabTransactions', 'tabBudget', 'tabInsights', 'tabTrends', 'tabTags'];
 
@@ -103,17 +103,11 @@ test('axe: the menus and the modals', async ({ adminPage: page, api }) => {
     await page.keyboard.press('Escape');
     await expect(split).toHaveCount(0);
 
-    // A transaction entered by hand: no manual account yet, then the form
+    // A transaction entered by hand: without manual account, on the synchronized one (with its help)
     await page.locator('.transactions-toolbar').getByRole('button', { name: tr('manualTransactionTitle') }).click();
     const manual = page.getByRole('dialog', { name: tr('manualTransactionTitle') });
-    await expect(manual).toContainText(tr('manualNoAccountAdmin'));
+    await expect(manual.getByText(tr('manualSyncedHelp'))).toBeVisible();
     problems.push(...await axeViolations(page, tr('manualTransactionTitle')));
-    await page.keyboard.press('Escape');
-    await expect(manual).toHaveCount(0);
-    expect((await api.post('/api/bank/manual', { data: { label: 'Espèces' } })).ok()).toBe(true);
-    await page.locator('.transactions-toolbar').getByRole('button', { name: tr('manualTransactionTitle') }).click();
-    await expect(manual.getByLabel(tr('manualLabel'))).toBeVisible();
-    problems.push(...await axeViolations(page, tr('manualTransactionTitle') + ' (form)'));
     await page.keyboard.press('Escape');
     await expect(manual).toHaveCount(0);
 
@@ -130,6 +124,8 @@ test('axe: the menus and the modals', async ({ adminPage: page, api }) => {
     await page.locator('.search-filters').getByRole('button', { name: tr('clearSearch') }).click();
     await expect(page.locator('.search-filters')).toHaveCount(0);
 
+    // Offered when the month has no budget and the previous month has some
+    await offerBudgetCopy(api);
     await openTab(page, tr('tabBudget'));
     await page.getByRole('tab', { name: tr('budgetConfigTab') }).click();
     await page.locator('.budget-copy-button').click();
@@ -170,7 +166,8 @@ test('axe: the menus and the modals', async ({ adminPage: page, api }) => {
     // Connecting a bank: its module installed once the woob repository is trusted
     trustWoobRepository();
     await openTab(page, tr('tabAccounts'));
-    await page.getByRole('button', { name: tr('connectBankTitle') }).click();
+    await page.getByRole('button', { name: tr('addAccountsFromBank') }).click();
+    await page.getByRole('dialog', { name: tr('addAccountsFromBank') }).getByLabel(tr('addAccountsBank')).selectOption({ label: tr('connectNewBank') });
     const connect = page.getByRole('dialog', { name: tr('connectBankTitle') });
     await connect.getByLabel(new RegExp(tr('connectBankModule'))).selectOption('boursorama');
     await expect(connect.locator('fieldset.bank-setup input').first()).toBeVisible();
@@ -277,6 +274,29 @@ test('axe: the import of a backup, its files, its confirmation, at 320 CSS px to
     await expect(dialog).toBeVisible();
     problems.push(...await axeViolations(page, tr('backupImportConfirmTitle')));
     await page.keyboard.press('Escape');
+
+    expect(problems).toEqual([]);
+});
+
+test('axe: the purge, a dataset ticked with its dependents, its confirmation, refused from Internet', async ({ adminPage: page }) => {
+    const problems = [];
+    await showTab(page, 'tabPurge');
+    await page.locator('input[data-dataset="categories"]').check();
+    problems.push(...await axeViolations(page, tr('purgeTitle')));
+    await page.setViewportSize({ width: 320, height: 256 });
+    problems.push(...await reflowProblems(page, tr('purgeTitle')));
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    await page.locator('.purge-button').click();
+    await expect(page.getByRole('dialog', { name: tr('purgeConfirmTitle') })).toBeVisible();
+    problems.push(...await axeViolations(page, tr('purgeConfirmTitle')));
+    await page.keyboard.press('Escape');
+
+    await page.setExtraHTTPHeaders({ 'X-Forwarded-For': '203.0.113.7' });
+    await showTab(page, 'tabBackup');
+    await showTab(page, 'tabPurge');
+    await expect(page.locator('.purge-not-local')).toBeVisible();
+    problems.push(...await axeViolations(page, tr('purgeNotLocal')));
 
     expect(problems).toEqual([]);
 });
@@ -404,5 +424,56 @@ test('axe: the tags, their form and a summary', async ({ adminPage: page, api })
     await page.getByRole('button', { name: tr('tagSelect'), exact: true }).click();
     await expect(page.locator('.tag-selection-bar')).toBeVisible();
     problems.push(...await axeViolations(page, tr('tagSelect')));
+    expect(problems).toEqual([]);
+});
+
+test('axe: the bar of the recurring transactions, folded and unfolded, at 320 CSS px too (#465)', async ({ adminPage: page }) => {
+    const problems = [];
+    const bar = page.getByRole('region', { name: tr('recurringSummary') });
+    const unfold = bar.getByRole('button', { name: tr('recurringDetails') });
+    await expect(unfold).toHaveAttribute('aria-expanded', 'false');
+    problems.push(...await axeViolations(page, `${tr('recurringSummary')} (folded)`));
+
+    await unfold.click();
+    await expect(page.locator('#recurring-bar-details')).toBeVisible();
+    problems.push(...await axeViolations(page, `${tr('recurringSummary')} (unfolded)`));
+    await page.setViewportSize({ width: 320, height: 720 });
+    problems.push(...await reflowProblems(page, `${tr('recurringSummary')} (unfolded, 320 px)`));
+    expect(problems).toEqual([]);
+});
+
+test('axe: the note of a budget, on its card and in the budget editor (#468)', async ({ adminPage: page, api }) => {
+    const { month, year } = currentMonth();
+    await api.post('/api/budget', { data: { category: 4, amount: 1000, month, year, note: 'Loyer + charges, régularisation en juin' } });
+    const problems = [];
+
+    await openTab(page, tr('tabBudget'));
+    await page.getByRole('tab', { name: tr('budgetConfigTab') }).click();
+    const card = page.locator('.budget-card').filter({ has: page.locator('.budget-card-note') });
+    await expect(card).toHaveCount(1);
+    problems.push(...await axeViolations(page, tr('budgetNoteLabel')));
+
+    await card.getByRole('button', { name: tr('budgetEditTitle') }).click();
+    await expect(page.getByRole('dialog', { name: tr('budgetEditTitle') })).toBeVisible();
+    problems.push(...await axeViolations(page, `${tr('budgetEditTitle')} (${tr('budgetNoteLabel')})`));
+    expect(problems).toEqual([]);
+});
+
+test('axe: the cards of the insights with their move handles, one of them dragged (#467)', async ({ adminPage: page, api }) => {
+    const sql = 'SELECT SUM(amount) AS amount FROM bank_transaction WHERE MONTH(date) = {month} AND YEAR(date) = {year}';
+    await api.post('/api/insight', { data: { name: 'Revenus', color: 'green', sql } });
+    const problems = [];
+
+    await openTab(page, tr('tabInsights'));
+    await expect(page.getByRole('button', { name: tr('insightMoveOf', { name: 'Dépenses' }) })).toBeVisible();
+    problems.push(...await axeViolations(page, tr('insightMove')));
+
+    const box = await page.locator('.insight-card .insight-drag').first().boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 5, box.y + box.height / 2 + 5);
+    await expect(page.locator('.insight-card.dragging')).toHaveCount(1);
+    problems.push(...await axeViolations(page, `${tr('insightMove')} (dragging)`));
+    await page.mouse.up();
     expect(problems).toEqual([]);
 });

@@ -60,8 +60,8 @@ The card **always shows the absolute value of the amount, with two decimals and 
 - a **percentage** or a **count** (of transactions, of months…) is also shown with `€`:
   a savings rate of 32.5% appears as "32,50 €". The recipes concerned say so
   in their name (`%`, "Nb") to remove any ambiguity;
-- the **sign** only shows through the color: an expense (negative amount) is red, an
-  income or a favorable difference is not. The recipes follow the transaction
+- a negative amount is shown with its **sign** ("-1 584,20 €") and in red, an income or a
+  favorable difference without sign nor red. The recipes follow the transaction
   convention: **negative = money going out**;
 - a query that returns nothing (`NULL`, for example no transaction that month) or that
   fails shows **0,00 €**;
@@ -76,7 +76,7 @@ The useful tables (see [Data model](modele-donnees.md)):
 |---|---|
 | `bank_transaction` | `date` (debit date, the one of the month displayed), `rdate` (actual transaction date: day of a card payment), `type`, `label`, `category`, `amount` (negative = debit), `pointed` (1 = checked), `bank_name`, `account_number`, `split_of` (a part of a split transaction: the id of the original transaction, otherwise `NULL`) |
 | `bank_transaction_category` | `id`, `name`, `parent_category` (0 = main category), `type`: `DEBIT`, `CREDIT` or `HORS-BUDGET` |
-| `budget` | `category`, `amount` (planned positive amount), `date` (first day of the month) |
+| `budget` | `category`, `amount` (planned positive amount), `date` (first day of the month), `note` |
 | `bank_account` | `bank_name`, `account_number`, `label` (name given to the account) |
 | `tag` | `id`, `name` (without its `#`), `start_date`, `end_date` |
 | `transaction_tag` | `transaction_id` (`bank_transaction.id`), `tag_id` (`tag.id`) |

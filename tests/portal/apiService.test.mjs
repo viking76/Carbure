@@ -106,7 +106,7 @@ test('a new list request cancels the previous one of the same kind', async () =>
     await assert.rejects(first, { name: 'AbortError' });
     release();
     assert.deepEqual(await second, [{ id: 2 }]);
-    assert.equal(calls[1].url, `${BASE}/budget?month=10&year=2026&category=4`);
+    assert.equal(calls[1].url, `${BASE}/budget?month=10&year=2026&category=4&own=1`);
 });
 
 test('abortAllExcept cancels the other pending lists', async () => {
@@ -136,6 +136,16 @@ test('copyBudgets copies the previous month with POST /budget/copy', async () =>
     assert.equal(calls[0].url, `${BASE}/budget/copy`);
     assert.equal(calls[0].options.method, 'POST');
     assert.deepEqual(JSON.parse(calls[0].options.body), { month: 11, year: 2026, overwrite: true });
+});
+
+test('fetchBudgetCopyStatus asks GET /budget/copy for the month', async () => {
+    const status = { month: '2026-11', source: '2026-10', defined: false, source_defined: true, copyable: true };
+    const calls = mockFetch(() => json(status));
+    const api = createApiService(BASE, 't');
+
+    assert.deepEqual(await api.fetchBudgetCopyStatus(11, 2026), status);
+    assert.equal(calls[0].url, `${BASE}/budget/copy?month=11&year=2026`);
+    assert.equal(calls[0].options.method, undefined);
 });
 
 test('saveInsight sends the chosen icon, null for the default one', async () => {
@@ -289,4 +299,34 @@ test('rule settings: read with GET, keep_categorized changed with PUT /category/
     assert.equal(calls[1].url, `${BASE}/category/keyword/settings`);
     assert.equal(calls[1].options.method, 'PUT');
     assert.deepEqual(JSON.parse(calls[1].options.body), { keep_categorized: true });
+});
+
+test('rules: the optional amount sent with the rule, empty for any amount', async () => {
+    const calls = mockFetch(() => json({ id: 1 }));
+    const api = createApiService(BASE, 't');
+    await api.createRule('PAYPAL', '3', false, ' 10,50 ');
+    assert.deepEqual(JSON.parse(calls[0].options.body), { keyword: 'PAYPAL', category: 3, notify: false, amount: '10,50' });
+    await api.createRule('PAYPAL', 1);
+    assert.deepEqual(JSON.parse(calls[1].options.body), { keyword: 'PAYPAL', category: 1, notify: false, amount: '' });
+    await api.updateRule(1, 'PAYPAL', 3, true, null);
+    assert.equal(calls[2].options.method, 'PUT');
+    assert.deepEqual(JSON.parse(calls[2].options.body), { id: 1, keyword: 'PAYPAL', category: 3, notify: true, amount: '' });
+});
+
+test('fetchCategoryTransactions asks only the transactions of the category itself with own (#492)', async () => {
+    const calls = mockFetch(() => json([]));
+    const api = createApiService(BASE, 't');
+    await api.fetchCategoryTransactions(11, 2026, 1);
+    await api.fetchCategoryTransactions(11, 2026, 1, true);
+    assert.equal(calls[0].url, `${BASE}/transaction?month=11&year=2026&category=1`);
+    assert.equal(calls[1].url, `${BASE}/transaction?month=11&year=2026&category=1&own=1`);
+});
+
+test('importTransactions sends the account only when one is chosen (#485)', async () => {
+    const calls = mockFetch(() => json({ imported: 0 }));
+    const api = createApiService(BASE, 't');
+    await api.importTransactions('eA==', 'releve.csv', [0]);
+    await api.importTransactions('eA==', 'releve.csv', [0], 3);
+    assert.deepEqual(JSON.parse(calls[0].options.body), { file: 'eA==', filename: 'releve.csv', selected: [0] });
+    assert.deepEqual(JSON.parse(calls[1].options.body), { file: 'eA==', filename: 'releve.csv', selected: [0], account: 3 });
 });

@@ -607,28 +607,16 @@
                             </button>
                         </div>
 
-                        <!-- Recurring series of the month: their number, their total, the filter and the calendar -->
-                        <section v-if="!isSearching && recurring.length > 0" class="recurring-strip" :aria-label="t('recurringSummary')">
-                            <span class="recurring-strip-icon" aria-hidden="true"><span class="material-icons">autorenew</span></span>
-                            <div class="recurring-strip-info">
-                                <span class="recurring-strip-title">{{ t('recurringCount', { count: recurring.length }) }}</span>
-                                <span class="recurring-strip-detail">
-                                    {{ t('recurringCalendarReceived', { count: recurringCalendar.received.count }) }}<template v-if="recurringCalendar.expected.count > 0"> · {{ t(isCurrentMonth ? 'recurringCalendarExpected' : 'recurringCalendarMissing', { count: recurringCalendar.expected.count }) }}</template>
-                                </span>
-                            </div>
-                            <div class="recurring-strip-total">
-                                <span class="recurring-strip-total-label">{{ t('recurringTotal') }}</span>
-                                <strong :class="recurringTotal >= 0 ? 'positive' : 'negative'">{{ formatAmount(recurringTotal) }} {{ currencySymbol }}</strong>
-                            </div>
-                            <label class="toggle-switch toggle-recurring" :class="{ on: recurringOnly }">
-                                <input type="checkbox" role="switch" v-model="recurringOnly" />
-                                <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
-                                <span class="toggle-label">{{ t('recurringOnly') }}</span>
-                            </label>
-                            <button type="button" class="btn-secondary btn-recurring-calendar" @click="openRecurringCalendar" :title="t('recurringCalendarHelp')">
-                                <span class="material-icons" aria-hidden="true">calendar_month</span><span class="btn-label">{{ t('recurringCalendarButton') }}</span>
-                            </button>
-                        </section>
+                        <!-- Criteria of the advanced search, each one removable, right below the search bar -->
+                        <div v-if="searchFilterCount" class="search-filters" role="group" :aria-label="t('advancedSearchFilters')">
+                            <span v-for="chip in searchFilterChips" :key="chip.key + (chip.value ?? '')" class="search-filter-chip">
+                                <span class="search-filter-chip-label">{{ chip.label }}</span>
+                                <button type="button" @click="removeSearchFilter(chip)" :title="t('advancedSearchRemove', { filter: chip.label })" :aria-label="t('advancedSearchRemove', { filter: chip.label })">
+                                    <span class="material-icons" aria-hidden="true">close</span>
+                                </button>
+                            </span>
+                            <button type="button" class="search-filters-clear" @click="clearSearch">{{ t('clearSearch') }}</button>
+                        </div>
 
                         <div class="transactions-container">
                             <div class="transactions-header">
@@ -641,6 +629,11 @@
                                                @change="transactionFilter = $event.target.checked ? 'unchecked' : 'all'" />
                                         <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
                                         <span class="toggle-label">{{ t('uncheckedCount', { count: (isSearching ? searchResults : transactions).filter(t => !Number(t.pointed)).length }) }}</span>
+                                    </label>
+                                    <label class="toggle-switch toggle-uncategorized" :class="{ on: uncategorizedOnly }">
+                                        <input type="checkbox" role="switch" v-model="uncategorizedOnly" />
+                                        <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                                        <span class="toggle-label">{{ t('uncategorizedCount', { count: uncategorizedCount }) }}</span>
                                     </label>
                                     <button type="button" class="btn-secondary btn-manual-add btn-select" @click="toggleTransactionSelection"
                                             :aria-pressed="selectingTransactions ? 'true' : 'false'" :title="t('tagSelectHelp')">
@@ -655,33 +648,58 @@
                                     </button>
                                 </div>
                             </div>
-                            <!-- Selection of transactions: one tag added to all of them, or all of them deleted -->
+                            <!-- Recurring series of the month, a bar like the selection one (#465): folded, their
+                                 number and its chevron; unfolded, under them, what was received, their total, the
+                                 filter and the calendar -->
+                            <section v-if="!isSearching && recurring.length > 0" class="recurring-bar" :class="{ expanded: recurringExpanded }" :aria-label="t('recurringSummary')">
+                                <span class="material-icons recurring-bar-icon" aria-hidden="true">autorenew</span>
+                                <span class="recurring-bar-title">{{ t('recurringCount', { count: recurring.length }) }}</span>
+                                <button type="button" class="recurring-bar-toggle" @click="toggleRecurringBar"
+                                        :aria-expanded="recurringExpanded ? 'true' : 'false'" aria-controls="recurring-bar-details"
+                                        :title="t('recurringDetails')" :aria-label="t('recurringDetails')">
+                                    <span class="material-icons" aria-hidden="true">{{ recurringExpanded ? 'expand_less' : 'expand_more' }}</span>
+                                </button>
+                                <div v-show="recurringExpanded" id="recurring-bar-details" class="recurring-bar-details">
+                                    <span class="recurring-bar-detail">
+                                        {{ t('recurringCalendarReceived', { count: recurringCalendar.received.count }) }}<template v-if="recurringCalendar.expected.count > 0"> · {{ t(isCurrentMonth ? 'recurringCalendarExpected' : 'recurringCalendarMissing', { count: recurringCalendar.expected.count }) }}</template>
+                                    </span>
+                                    <span class="recurring-bar-total">
+                                        <span class="recurring-bar-total-label">{{ t('recurringTotal') }}</span>
+                                        <strong :class="recurringTotal >= 0 ? 'positive' : 'negative'">{{ formatAmount(recurringTotal) }} {{ currencySymbol }}</strong>
+                                    </span>
+                                    <label class="toggle-switch toggle-recurring" :class="{ on: recurringOnly }">
+                                        <input type="checkbox" role="switch" v-model="recurringOnly" />
+                                        <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                                        <span class="toggle-label">{{ t('recurringOnly') }}</span>
+                                    </label>
+                                    <button type="button" class="btn-secondary btn-recurring-calendar" @click="openRecurringCalendar" :title="t('recurringCalendarHelp')">
+                                        <span class="material-icons" aria-hidden="true">calendar_month</span><span class="btn-label">{{ t('recurringCalendarButton') }}</span>
+                                    </button>
+                                </div>
+                            </section>
+                            <!-- Selection of transactions: one tag added to all of them, or all of them deleted; their
+                                 category changes from the picker of one of them, in the list -->
                             <div v-if="selectingTransactions" class="tag-selection-bar" role="region" :aria-label="t('tagSelect')">
                                 <span class="tag-selection-count" aria-live="polite">{{ t('tagSelected', { count: selectedTransactionIds.length }) }}</span>
-                                <template v-if="activeTags.length">
-                                    <label class="visually-hidden" for="tag-selection">{{ t('tagChoose') }}</label>
-                                    <select id="tag-selection" v-model="selectionTag">
-                                        <option value="">{{ t('tagChoose') }}</option>
-                                        <option v-for="tag in activeTags" :key="tag.id" :value="tag.id">#{{ tag.name }}</option>
-                                    </select>
-                                    <button type="button" class="btn-manual-add" @click="tagSelectedTransactions" :disabled="!selectionTag || selectedTransactionIds.length === 0">
-                                        <span class="material-icons" aria-hidden="true">sell</span>{{ t('tagAdd') }}
-                                    </button>
-                                </template>
+                                <button type="button" class="btn-secondary selection-all" @click="toggleSelectAll" :disabled="displayedTransactions.length === 0"
+                                        :aria-pressed="allDisplayedSelected ? 'true' : 'false'">
+                                    <span class="material-icons" aria-hidden="true">{{ allDisplayedSelected ? 'deselect' : 'select_all' }}</span>{{ allDisplayedSelected ? t('selectionUnselectAll') : t('selectionSelectAll') }}
+                                </button>
+                                <!-- The tag is chosen by typing it, then applied to the selection by its button -->
+                                <label class="visually-hidden" for="tag-selection">{{ t('tagAddToSelection') }}</label>
+                                <tag-input input-id="tag-selection" :tags="activeTags" :all-tags="tags" :t="t" :color-for="categoryColor" keep
+                                           @select="id => selectionTag = id" @create="createSelectionTag" @clear="selectionTag = ''"></tag-input>
+                                <button type="button" class="btn-manual-add selection-apply" @click="tagSelectedTransactions(selectionTag)"
+                                        :disabled="!selectionTag || selectedTransactionIds.length === 0">
+                                    <span class="material-icons" aria-hidden="true">sell</span>{{ t('tagApply') }}
+                                </button>
                                 <button type="button" class="btn-danger selection-delete" @click="deleteSelectedTransactions"
                                         :disabled="deletingSelection || selectedTransactionIds.length === 0">
                                     <span class="material-icons" aria-hidden="true">delete</span>{{ t('selectionDelete') }}
                                 </button>
-                            </div>
-                            <!-- Criteria of the advanced search, each one removable -->
-                            <div v-if="searchFilterCount" class="search-filters" role="group" :aria-label="t('advancedSearchFilters')">
-                                <span v-for="chip in searchFilterChips" :key="chip.key + (chip.value ?? '')" class="search-filter-chip">
-                                    <span class="search-filter-chip-label">{{ chip.label }}</span>
-                                    <button type="button" @click="removeSearchFilter(chip)" :title="t('advancedSearchRemove', { filter: chip.label })" :aria-label="t('advancedSearchRemove', { filter: chip.label })">
-                                        <span class="material-icons" aria-hidden="true">close</span>
-                                    </button>
-                                </span>
-                                <button type="button" class="search-filters-clear" @click="clearSearch">{{ t('clearSearch') }}</button>
+                                <button type="button" class="selection-close" @click="toggleTransactionSelection" :title="t('selectionClose')" :aria-label="t('selectionClose')">
+                                    <span class="material-icons" aria-hidden="true">close</span>
+                                </button>
                             </div>
                             <div v-if="isSearching && !searching && displayedTransactions.length > 0" class="search-total">
                                 <span>{{ t('searchTotal', { count: displayedTransactions.length }) }}</span>
@@ -712,7 +730,7 @@
                             </section>
                             <div v-if="searching" class="transactions-hint">{{ t('searching') }}</div>
                             <div v-else-if="displayedTransactions.length === 0" class="transactions-hint">
-                                {{ isSearching ? t('noSearchResults') : recurringOnly ? t('noRecurringReceived') : t('allChecked') }}
+                                {{ isSearching ? t('noSearchResults') : recurringOnly ? t('noRecurringReceived') : uncategorizedOnly ? t('allCategorized') : t('allChecked') }}
                             </div>
                             <div class="transactions-list">
                                 <div v-for="transaction in displayedTransactions" :key="transaction.id" class="transaction-item"
@@ -729,9 +747,10 @@
                                     <div class="transaction-icon" :class="transactionCategory(transaction) ? '' : 'type-' + transaction.type" :style="transactionIconStyle(transaction)">
                                         <span class="material-icons" aria-hidden="true">{{ transactionIcon(transaction) }}</span>
                                     </div>
+                                    <!-- Named by its content (WCAG 2.5.3 Label in Name): the visible text, after a hidden prefix -->
                                     <div class="transaction-details transaction-open" role="button" tabindex="0"
-                                         :aria-label="t('transactionDetail') + ' : ' + transaction.label"
                                          @click="openTransactionModal(transaction)" @keydown.enter.prevent="openTransactionModal(transaction)" @keydown.space.prevent="openTransactionModal(transaction)">
+                                        <span class="visually-hidden">{{ t('transactionDetail') }} : </span>
                                         <div class="transaction-label">{{ transaction.label }}</div>
                                         <div class="transaction-date">
                                             {{ formatDate(transaction.rdate || transaction.date) }}
@@ -745,15 +764,24 @@
                                                 <span class="material-icons" aria-hidden="true">call_split</span>{{ t('splitBankAmount', { amount: formatAmount(transactionBankAmount(transaction)) + ' ' + currencySymbol }) }}
                                             </span>
                                         </div>
+                                        <p v-if="transaction.comment" class="transaction-comment" :title="transaction.comment">
+                                            <span class="material-icons" aria-hidden="true">chat_bubble_outline</span>
+                                            <span class="visually-hidden">{{ t('transactionComment') }}: </span>{{ transaction.comment }}
+                                        </p>
                                         <div v-if="transaction.tags && transaction.tags.length" class="transaction-tags">
                                             <span v-for="tag in transactionTags(transaction)" :key="tag.id" class="tag-chip">
                                                 <span class="tag-dot" :style="{ background: categoryColor(tag) }" aria-hidden="true"></span><span class="tag-chip-name">#{{ tag.name }}</span>
                                             </span>
                                         </div>
                                     </div>
-                                    <div class="transaction-category">
-                                        <category-picker v-if="isUncategorized(transaction) && ruleCategoryOptions.length > 0" compact
-                                                         model-value="" :categories="ruleCategories" :t="t" :placeholder="t('chooseCategory')"
+                                    <!-- Selected: its picker changes the category of the whole selection -->
+                                    <div class="transaction-category" :title="selectingTransactions && selectedTransactionIds.includes(Number(transaction.id)) ? t('selectionCategoryHelp', { count: selectedTransactionIds.length }) : null">
+                                        <category-picker v-if="selectingTransactions && selectedTransactionIds.includes(Number(transaction.id)) && ruleCategories.length > 0" compact with-default
+                                                         :model-value="isUncategorized(transaction) ? '' : Number(transaction.category)" :categories="ruleCategories" :t="t" :amount="transaction.amount"
+                                                         :placeholder="t('chooseCategory')" :icon-for="categoryIcon" :color-for="categoryColor"
+                                                         @update:model-value="categorizeSelectedTransactions($event)"></category-picker>
+                                        <category-picker v-else-if="isUncategorized(transaction) && ruleCategoryOptions.length > 0" compact
+                                                         model-value="" :categories="ruleCategories" :t="t" :placeholder="t('chooseCategory')" :amount="transaction.amount"
                                                          :icon-for="categoryIcon" :color-for="categoryColor"
                                                          @update:model-value="categorizeTransaction(transaction, $event)"></category-picker>
                                         <span v-else-if="categoryName(transaction)" class="category-chip" :title="categoryName(transaction)">{{ categoryName(transaction) }}</span>
@@ -795,11 +823,17 @@
                                 <span class="material-icons" aria-hidden="true">tune</span>{{ t('budgetConfigTab') }}
                             </button>
                         </div>
-                        <!-- Copy the budgets of the previous month -->
-                        <button v-if="budgetView === 'budgets'" class="btn-secondary budget-copy-button" @click="openCopyModal">
+                        <!-- Copy the budgets of the previous month: offered when the month has none and the previous one has some -->
+                        <button v-if="budgetView === 'budgets' && budgetCopyOffered" class="btn-secondary budget-copy-button" @click="openCopyModal">
                             <span class="material-icons" aria-hidden="true">content_copy</span>
                             {{ copyButtonLabel }}
                         </button>
+                    </div>
+                    <div v-if="ruleSuggestion" class="rule-suggestion" role="status">
+                        <span class="material-icons" aria-hidden="true">lightbulb</span>
+                        <span class="rule-suggestion-text">{{ t('ruleSuggestion', { label: ruleSuggestion.keyword, category: ruleSuggestion.categoryName }) }}</span>
+                        <button @click="createSuggestedRule">{{ t('createRule') }}</button>
+                        <button class="btn-secondary" @click="ruleSuggestion = null">{{ t('ignore') }}</button>
                     </div>
 
                     <div v-if="budgetView === 'flow'" role="tabpanel">
@@ -847,9 +881,16 @@
                                         <div class="transaction-icon" :class="transactionCategory(transaction) ? '' : 'type-' + transaction.type" :style="transactionIconStyle(transaction)">
                                             <span class="material-icons" aria-hidden="true">{{ transactionIcon(transaction) }}</span>
                                         </div>
-                                        <div class="transaction-details">
+                                        <!-- Named by its content (WCAG 2.5.3 Label in Name): the visible text, after a hidden prefix -->
+                                        <div class="transaction-details transaction-open" role="button" tabindex="0"
+                                             @click="openTransactionModal(transaction)" @keydown.enter.prevent="openTransactionModal(transaction)" @keydown.space.prevent="openTransactionModal(transaction)">
+                                            <span class="visually-hidden">{{ t('transactionDetail') }} : </span>
                                             <div class="transaction-label">{{ transaction.label }}</div>
                                             <div class="transaction-date">{{ formatDate(transaction.rdate || transaction.date) }}<template v-if="transactionCategory(transaction)"> · {{ transactionCategory(transaction).name }}</template></div>
+                                            <p v-if="transaction.comment" class="transaction-comment" :title="transaction.comment">
+                                                <span class="material-icons" aria-hidden="true">chat_bubble_outline</span>
+                                                <span class="visually-hidden">{{ t('transactionComment') }}: </span>{{ transaction.comment }}
+                                            </p>
                                         </div>
                                         <div class="transaction-amount" :class="transaction.amount >= 0 ? 'positive' : 'negative'">
                                             {{ formatAmount(transaction.amount) }} {{ currencySymbol }}
@@ -920,21 +961,21 @@
                             <section v-if="group.items.length > 0" class="budget-section" :class="'budget-section-' + group.key">
                                 <h3 class="budget-section-title">{{ group.title }}</h3>
                                 <div class="budget-grid">
-                                    <article v-for="item in group.items" :key="item.id" class="budget-card"
-                                             :class="[group.key === 'expenses' ? 'status-' + budgetStatus(item) + ' budget-card-filled' : '', { selected: budgetCategory && budgetCategory.id === item.id }]"
-                                             :style="group.key === 'expenses' ? { '--budget-fill': Math.min(Number(item.progress) || 0, 100) + '%' } : null"
+                                    <article v-for="item in group.items" :key="(item.own ? 'own-' : '') + item.id" class="budget-card"
+                                             :class="[group.key === 'expenses' && !item.own ? 'status-' + budgetStatus(item) + ' budget-card-filled' : '', { selected: isBudgetCategorySelected(item), 'budget-card-own': item.own }]"
+                                             :style="group.key === 'expenses' && !item.own ? { '--budget-fill': Math.min(Number(item.progress) || 0, 100) + '%' } : null"
                                              tabindex="0" @click="navigateToBudget(item)" @keydown.enter="navigateToBudget(item)">
                                         <div class="budget-card-head">
                                             <span class="budget-card-icon" :style="categoryBadgeStyle(item)">
                                                 <span class="material-icons" aria-hidden="true">{{ categoryIcon(item) }}</span>
                                             </span>
-                                            <span class="budget-card-name">{{ item.name }}</span>
-                                            <button class="budget-card-edit" :title="t('budgetEditTitle')" @click.stop="openBudgetModal(item)" :aria-label="t('budgetEditTitle')">
+                                            <span class="budget-card-name">{{ budgetItemName(item) }}</span>
+                                            <button v-if="!item.own" class="budget-card-edit" :title="t('budgetEditTitle')" @click.stop="openBudgetModal(item)" :aria-label="t('budgetEditTitle')">
                                                 <span class="material-icons" aria-hidden="true">tune</span>
                                             </button>
                                         </div>
 
-                                        <template v-if="group.key === 'expenses'">
+                                        <template v-if="group.key === 'expenses' && !item.own">
                                             <div class="budget-card-amounts">
                                                 <span class="spent">{{ formatAmount(item.consummed) }} {{ currencySymbol }}</span>
                                                 <span class="of" :title="item.budget_mode === 'children' ? t('budgetSumOfChildren') : null">/ {{ item.budget_mode === 'children' ? 'Σ ' : '' }}{{ formatAmount(item.budget) }} {{ currencySymbol }}</span>
@@ -954,6 +995,11 @@
                                             <span class="spent" :class="{ positive: group.key === 'incomes' }">{{ formatAmount(item.consummed) }} {{ currencySymbol }}</span>
                                             <span class="of" v-if="Number(item.budget) > 0">/ {{ formatAmount(item.budget) }} {{ currencySymbol }}</span>
                                         </div>
+
+                                        <p v-if="item.note" class="budget-card-note" :title="item.note">
+                                            <span class="material-icons" aria-hidden="true">sticky_note_2</span>
+                                            <span class="visually-hidden">{{ t('budgetNoteLabel') }}: </span>{{ item.note }}
+                                        </p>
                                     </article>
                                 </div>
                             </section>
@@ -987,9 +1033,16 @@
                                         <div class="transaction-icon" :class="transactionCategory(transaction) ? '' : 'type-' + transaction.type" :style="transactionIconStyle(transaction)">
                                             <span class="material-icons" aria-hidden="true">{{ transactionIcon(transaction) }}</span>
                                         </div>
-                                        <div class="transaction-details">
+                                        <!-- Named by its content (WCAG 2.5.3 Label in Name): the visible text, after a hidden prefix -->
+                                        <div class="transaction-details transaction-open" role="button" tabindex="0"
+                                             @click="openTransactionModal(transaction)" @keydown.enter.prevent="openTransactionModal(transaction)" @keydown.space.prevent="openTransactionModal(transaction)">
+                                            <span class="visually-hidden">{{ t('transactionDetail') }} : </span>
                                             <div class="transaction-label">{{ transaction.label }}</div>
-                                            <div class="transaction-date">{{ formatDate(transaction.rdate || transaction.date) }}</div>
+                                            <div class="transaction-date">{{ formatDate(transaction.rdate || transaction.date) }}<template v-if="transactionCategory(transaction)"> · {{ transactionCategory(transaction).name }}</template></div>
+                                            <p v-if="transaction.comment" class="transaction-comment" :title="transaction.comment">
+                                                <span class="material-icons" aria-hidden="true">chat_bubble_outline</span>
+                                                <span class="visually-hidden">{{ t('transactionComment') }}: </span>{{ transaction.comment }}
+                                            </p>
                                         </div>
                                         <div class="transaction-amount" :class="transaction.amount >= 0 ? 'positive' : 'negative'">
                                             {{ formatAmount(transaction.amount) }} {{ currencySymbol }}
@@ -1027,8 +1080,14 @@
                                 </div>
                             </div>
                             <div v-if="insights.length === 0" class="transactions-hint">{{ t('noInsightsMessage') }}</div>
-                            <div class="insights-grid">
-                            <div v-for="insight in insights" :key="insight.id" class="insight-card" :class="'insight-' + insight.color"
+                            <!-- Cards ordered by drag and drop on a magnetic grid (#467): the card dragged by its
+                                 handle snaps to the cell under the pointer, the others slide aside; the arrow keys
+                                 move it from the handle -->
+                            <p id="insight-move-help" class="visually-hidden">{{ t('insightMoveHelp') }}</p>
+                            <p class="visually-hidden" aria-live="polite">{{ insightOrderAnnouncement }}</p>
+                            <transition-group name="insight-move" tag="div" class="insights-grid" :class="{ 'insights-sorting': draggingInsight !== null }">
+                            <div v-for="insight in insights" :key="insight.id" class="insight-card" :data-insight-id="insight.id"
+                                 :class="['insight-' + insight.color, { dragging: draggingInsight === insight.id }]"
                                  :style="insightColorValues[insight.color] ? { '--insight-color': insightColorValues[insight.color] } : {}">
                                 <div class="insight-main">
                                     <div class="insight-icon" aria-hidden="true">
@@ -1037,7 +1096,7 @@
                                     <div class="insight-content">
                                         <div class="insight-label">{{ getInsightName(insight.name) }}</div>
                                         <div class="insight-value" :class="{ 'negative': insight.amount < 0 }">
-                                            {{ formatAmount(Math.abs(insight.amount)) }} {{ currencySymbol }}
+                                            {{ formatAmount(insight.amount) }} {{ currencySymbol }}
                                         </div>
                                         <div v-if="insightAlerts[insight.id]" class="insight-alert-state">
                                             <span class="material-icons" aria-hidden="true">notifications_active</span><span class="insight-alert-text">{{ insightAlertText(insight) }}</span>
@@ -1047,6 +1106,12 @@
                                 <!-- The actions at the bottom of every card, at the same height in a row -->
                                 <div class="insight-footer">
                                     <div class="insight-actions">
+                                        <button v-if="insights.length > 1" class="btn-icon insight-drag" type="button"
+                                                @pointerdown="startInsightDrag($event, insight)" @keydown="moveInsightByKey($event, insight)"
+                                                :title="t('insightMove')" :aria-label="t('insightMoveOf', { name: getInsightName(insight.name) })"
+                                                aria-describedby="insight-move-help">
+                                            <span class="material-icons" aria-hidden="true">drag_indicator</span>
+                                        </button>
                                         <button v-if="isAdmin" class="btn-icon" @click="openInsightModal(insight)" :title="t('editInsight')" :aria-label="t('editInsight') + ' ' + getInsightName(insight.name)">
                                             <span class="material-icons" aria-hidden="true">edit</span>
                                         </button>
@@ -1061,7 +1126,7 @@
                                     </div>
                                 </div>
                             </div>
-                        </div>
+                            </transition-group>
                         </div>
                     </div>
 
@@ -1087,9 +1152,12 @@
                                 <h2>{{ t('trendsTitle', { months: trendsMonths }) }}</h2>
                                 <div class="trends-controls">
                                     <div class="trends-period" role="group" :aria-label="t('trendsPeriod')">
-                                        <button v-for="m in [3, 6, 12]" :key="m" :class="{ active: trendsMonths === m }"
-                                                :aria-pressed="trendsMonths === m ? 'true' : 'false'" @click="setTrendsMonths(m)">
+                                        <button v-for="m in [3, 6, 12, 24, 36, 60]" :key="m" :class="{ active: !trendsCustom && trendsOffset === 0 && trendsMonths === m }"
+                                                :aria-pressed="!trendsCustom && trendsOffset === 0 && trendsMonths === m ? 'true' : 'false'" @click="setTrendsMonths(m)">
                                             {{ t('monthsShort', { months: m }) }}
+                                        </button>
+                                        <button :class="{ active: trendsCustom }" :aria-pressed="trendsCustom ? 'true' : 'false'" @click="openTrendsRange">
+                                            {{ t('trendsCustomRange') }}
                                         </button>
                                     </div>
                                     <label class="trends-compare">
@@ -1102,6 +1170,15 @@
                                     </label>
                                 </div>
                             </div>
+                            <form v-if="trendsCustom" class="trends-range" @submit.prevent="applyTrendsRange">
+                                <label for="trends-from">{{ t('trendsFrom') }}</label>
+                                <input id="trends-from" type="month" v-model="trendsFrom" :min="trendsRangeBounds().min" :max="trendsRangeBounds().max" required />
+                                <label for="trends-to">{{ t('trendsTo') }}</label>
+                                <input id="trends-to" type="month" v-model="trendsTo" :min="trendsRangeBounds().min" :max="trendsRangeBounds().max" required />
+                                <button type="submit" class="btn-secondary">
+                                    <span class="material-icons" aria-hidden="true">check</span>{{ t('trendsApplyRange') }}
+                                </button>
+                            </form>
                             <p class="trends-periods-caption" v-if="trends.length">
                                 {{ trendsPeriodLabels.current }}
                                 <template v-if="compareStats"> · {{ t('comparedTo', { period: trendsPeriodLabels.compare }) }}</template>
@@ -1252,7 +1329,7 @@
                                           :width="savingsRateChart.columns[trendsHover].width" :height="savingsRateChart.columns[trendsHover].height" />
                                     <line class="planned-line" x1="68" x2="948" :y1="savingsRateChart.average" :y2="savingsRateChart.average" />
                                     <polyline class="rate-line" :points="savingsRateChart.line" />
-                                    <circle v-for="p in savingsRateChart.points" :key="p.key" class="rate-point" :cx="p.x" :cy="p.y" r="4.5" />
+                                    <circle v-for="p in savingsRateChart.markers" :key="p.key" class="rate-point" :cx="p.x" :cy="p.y" r="4.5" />
                                     <text v-for="label in savingsRateChart.labels" :key="label.key" class="axis-label" :x="label.x" :y="label.y" text-anchor="middle">{{ label.text }}</text>
                                     <rect v-for="col in savingsRateChart.columns" :key="col.key" class="hit" :x="col.x" :y="col.y" :width="col.width" :height="col.height"
                                           @mouseenter="trendsHover = col.index; trendsHoverChart = 'rate'" />
@@ -1265,6 +1342,135 @@
                                 </div>
                             </div>
                         </section>
+
+                        <!-- Categories of a type compared on one chart -->
+                        <section class="trends-card trend-categories-card">
+                            <div class="trends-chart-head">
+                                <h2 class="card-title">{{ t('trendCategoriesTitle') }}</h2>
+                                <div class="trends-controls">
+                                    <label class="trends-compare">
+                                        <select :value="trendCategoryType" @change="setTrendCategoryType($event.target.value)" :aria-label="t('trendCategoriesType')">
+                                            <option v-for="option in trendCategoryTypes" :key="option.value" :value="option.value">{{ t(option.label) }}</option>
+                                        </select>
+                                    </label>
+                                    <label class="trends-compare">
+                                        <select :value="trendCategoryLevel" @change="setTrendCategoryLevel($event.target.value)" :aria-label="t('trendCategoriesLevel')">
+                                            <option value="top">{{ t('trendCategoriesTop') }}</option>
+                                            <option value="sub">{{ t('trendCategoriesSub') }}</option>
+                                        </select>
+                                    </label>
+                                    <div class="trends-period trend-chart-kinds" role="group" :aria-label="t('trendsChartKind')">
+                                        <button v-for="kind in trendChartKinds" :key="kind.key" :class="{ active: trendsChartKind === kind.key }"
+                                                :aria-pressed="trendsChartKind === kind.key ? 'true' : 'false'" @click="setTrendsChartKind(kind.key)">
+                                            <span class="material-icons" aria-hidden="true">{{ kind.icon }}</span>{{ t(kind.label) }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="trendCategoryItems.length" class="trend-category-filter">
+                                <ul class="trend-category-chips" :aria-label="t('trendCategoriesLegend')">
+                                    <li v-for="category in trendCategoryItems" :key="category.id">
+                                        <button class="trend-category-chip" :class="{ off: !category.visible }" :aria-pressed="category.visible ? 'true' : 'false'"
+                                                @click="toggleTrendCategory(category.id)">
+                                            <span class="swatch" :style="{ background: category.visible ? category.color : 'transparent', borderColor: category.color }"></span>{{ category.name }}
+                                        </button>
+                                    </li>
+                                </ul>
+                                <div class="trend-category-actions">
+                                    <button class="btn-secondary" @click="showAllTrendCategories" :disabled="trendCategoryVisible.length === trendCategoryItems.length">{{ t('trendCategoriesAll') }}</button>
+                                    <button class="btn-secondary" @click="hideAllTrendCategories" :disabled="!trendCategoryVisible.length">{{ t('trendCategoriesNone') }}</button>
+                                </div>
+                            </div>
+                            <p v-if="!trendCategoryItems.length" class="trends-empty">{{ loadingTrendCategories ? t('loadingTrends') : t('trendCategoriesEmpty') }}</p>
+                            <p v-else-if="!trendCategoryVisible.length" class="trends-empty">{{ t('trendCategoriesNoneShown') }}</p>
+                            <div v-else class="trends-chart" @mouseleave="trendCategoryHover = null">
+                                <svg viewBox="0 0 960 300" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="t('trendCategoriesTitle')">
+                                    <g class="grid">
+                                        <template v-for="tick in trendCategoryChart.ticks" :key="tick.value">
+                                            <line :x1="68" :x2="trendCategoryChart.width - 12" :y1="tick.y" :y2="tick.y" />
+                                            <text x="60" :y="tick.y + 4" text-anchor="end">{{ tick.label }}</text>
+                                        </template>
+                                    </g>
+                                    <rect v-if="trendCategoryHover !== null" class="hover-band" :x="trendCategoryChart.columns[trendCategoryHover].x" :y="trendCategoryChart.columns[trendCategoryHover].y"
+                                          :width="trendCategoryChart.columns[trendCategoryHover].width" :height="trendCategoryChart.columns[trendCategoryHover].height" />
+                                    <path v-for="area in trendCategoryChart.areas" :key="area.key" class="category-area" :d="area.d" :fill="area.color" :stroke="area.color" />
+                                    <path v-for="bar in trendCategoryChart.bars" :key="bar.key" class="category-bar" :d="bar.d" :fill="bar.color" />
+                                    <line class="zero-line" x1="68" :x2="trendCategoryChart.width - 12" :y1="trendCategoryChart.zero" :y2="trendCategoryChart.zero" />
+                                    <polyline v-for="line in trendCategoryChart.lines" :key="line.key" class="category-line" :points="line.points" :stroke="line.color" />
+                                    <text v-for="label in trendCategoryChart.labels" :key="label.key" class="axis-label" :x="label.x" :y="label.y" text-anchor="middle">{{ label.text }}</text>
+                                    <rect v-for="col in trendCategoryChart.columns" :key="col.key" class="hit" :x="col.x" :y="col.y" :width="col.width" :height="col.height"
+                                          @mouseenter="trendCategoryHover = col.index" />
+                                </svg>
+                                <div v-if="trendCategoryHoverMonth" class="trends-tooltip" :style="{ left: trendCategoryHoverLeft + '%' }">
+                                    <strong>{{ formatMonth(trendCategoryHoverMonth.month) }}</strong>
+                                    <div v-for="row in trendCategoryHoverMonth.rows" :key="row.id"><span class="swatch" :style="{ background: row.color }"></span>{{ row.name }}<span>{{ formatAmount(row.amount) }} {{ currencySymbol }}</span></div>
+                                    <div class="total">{{ t('trendCategoriesTotal') }}<span>{{ formatAmount(trendCategoryHoverMonth.total) }} {{ currencySymbol }}</span></div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Custom charts: a category or an insight month by month -->
+                        <section v-for="chart in trendChartViews" :key="chart.key" class="trends-card trend-custom-chart" :data-chart="chart.key">
+                            <div class="trends-chart-head">
+                                <h2 class="card-title trend-chart-title">
+                                    <span class="transaction-icon" :style="trendChartTitle(chart).style">
+                                        <span class="material-icons" aria-hidden="true">{{ trendChartTitle(chart).icon }}</span>
+                                    </span>
+                                    {{ trendChartTitle(chart).name }}
+                                </h2>
+                                <ul class="trends-legend">
+                                    <li><span class="swatch average"></span>{{ t('trendChartAverage', { amount: formatAmount(chart.geometry.average) + ' ' + currencySymbol }) }}</li>
+                                    <li v-if="chart.geometry.hasPlanned"><span class="swatch line"></span>{{ t('trendsPlanned') }}</li>
+                                </ul>
+                                <div v-if="isAdmin" class="trend-chart-actions">
+                                    <button class="btn-icon" @click="moveTrendChart(chart, -1)" :disabled="savingTrendCharts || trendCharts[0].key === chart.key"
+                                            :title="t('trendChartUp')" :aria-label="t('trendChartUp') + ' ' + trendChartTitle(chart).name">
+                                        <span class="material-icons" aria-hidden="true">arrow_upward</span>
+                                    </button>
+                                    <button class="btn-icon" @click="moveTrendChart(chart, 1)" :disabled="savingTrendCharts || trendCharts[trendCharts.length - 1].key === chart.key"
+                                            :title="t('trendChartDown')" :aria-label="t('trendChartDown') + ' ' + trendChartTitle(chart).name">
+                                        <span class="material-icons" aria-hidden="true">arrow_downward</span>
+                                    </button>
+                                    <button class="btn-icon" @click="removeTrendChart(chart)" :disabled="savingTrendCharts"
+                                            :title="t('trendChartRemove')" :aria-label="t('trendChartRemove') + ' ' + trendChartTitle(chart).name">
+                                        <span class="material-icons" aria-hidden="true">delete</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="trends-chart" @mouseleave="trendChartHover = null">
+                                <svg :view-box.camel="'0 0 960 ' + chart.geometry.height" preserveAspectRatio="xMidYMid meet" role="img" :aria-label="trendChartTitle(chart).name">
+                                    <g class="grid">
+                                        <template v-for="tick in chart.geometry.ticks" :key="tick.value">
+                                            <line :x1="68" :x2="chart.geometry.width - 12" :y1="tick.y" :y2="tick.y" />
+                                            <text x="60" :y="tick.y + 4" text-anchor="end">{{ tick.label }}</text>
+                                        </template>
+                                    </g>
+                                    <rect v-if="trendChartHover && trendChartHover.key === chart.key" class="hover-band" :x="chart.geometry.columns[trendChartHover.index].x" :y="chart.geometry.columns[trendChartHover.index].y"
+                                          :width="chart.geometry.columns[trendChartHover.index].width" :height="chart.geometry.columns[trendChartHover.index].height" />
+                                    <line class="zero-line" x1="68" :x2="chart.geometry.width - 12" :y1="chart.geometry.zero" :y2="chart.geometry.zero" />
+                                    <path v-for="bar in chart.geometry.bars" :key="bar.key" class="series-bar" :d="bar.d" :fill="bar.positive ? '#2a78d6' : '#e34948'" />
+                                    <path v-if="chart.geometry.area" class="series-area" :d="chart.geometry.area" />
+                                    <polyline v-if="chart.geometry.line" class="series-line" :points="chart.geometry.line" />
+                                    <circle v-for="p in chart.geometry.markers" :key="p.key" class="series-point" :cx="p.x" :cy="p.y" r="3.5" />
+                                    <line class="average-line" x1="68" :x2="chart.geometry.width - 12" :y1="chart.geometry.averageY" :y2="chart.geometry.averageY" />
+                                    <polyline v-for="(points, i) in chart.geometry.planned" :key="i" class="planned-line" :points="points" />
+                                    <text v-for="label in chart.geometry.labels" :key="label.key" class="axis-label" :x="label.x" :y="label.y" text-anchor="middle">{{ label.text }}</text>
+                                    <rect v-for="col in chart.geometry.columns" :key="col.key" class="hit" :x="col.x" :y="col.y" :width="col.width" :height="col.height"
+                                          @mouseenter="trendChartHover = { key: chart.key, index: col.index }" />
+                                </svg>
+                                <div v-if="trendChartHoverMonth(chart)" class="trends-tooltip" :style="{ left: trendChartHoverLeft(chart) + '%' }">
+                                    <strong>{{ formatMonth(trendChartHoverMonth(chart).month) }}</strong>
+                                    <div>{{ t('trendChartAmount') }}<span>{{ formatAmount(trendChartHoverMonth(chart).amount) }} {{ currencySymbol }}</span></div>
+                                    <div v-if="trendChartHoverMonth(chart).planned !== null"><span class="swatch line"></span>{{ t('trendsPlanned') }}<span>{{ formatAmount(trendChartHoverMonth(chart).planned) }} {{ currencySymbol }}</span></div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div v-if="isAdmin" class="trend-chart-add">
+                            <button class="btn-secondary" @click="openTrendChartModal" :disabled="trendCharts.length >= 12">
+                                <span class="material-icons" aria-hidden="true">add_chart</span>{{ t('trendChartAdd') }}
+                            </button>
+                        </div>
 
                         <!-- Table view -->
                         <section class="trends-card">
@@ -1314,21 +1520,40 @@
                                 </div>
                             </div>
                             <div v-if="loadingTags && tags.length === 0" class="transactions-hint">{{ t('tagsLoading') }}</div>
-                            <div v-else-if="tags.length === 0" class="transactions-hint">{{ t('tagsEmpty') }}</div>
+                            <div v-else-if="tags.length === 0" class="tags-empty">
+                                <span class="tags-empty-icon" aria-hidden="true"><span class="material-icons">sell</span></span>
+                                <p class="tags-empty-title">{{ t('tagsEmpty') }}</p>
+                                <p class="rules-help">{{ t('tagsEmptyHelp') }}</p>
+                            </div>
                             <template v-for="group in [{ key: 'active', title: t('tagsActive'), list: tags.filter(g => g.active) }, { key: 'archived', title: t('tagsArchived'), list: archivedTags }]" :key="group.key">
                                 <template v-if="group.list.length">
-                                    <h3 class="accounts-section-title">{{ group.title }}</h3>
+                                    <h3 class="accounts-section-title tag-list-title">{{ group.title }}<span class="tag-list-count">{{ group.list.length }}</span></h3>
+                                    <!-- A card per tag: its color as an accent, the time gone of its period, its cost -->
                                     <ul class="tag-list" :class="'tag-list-' + group.key" :aria-label="group.title">
-                                        <li v-for="tag in group.list" :key="tag.id" class="tag-item">
-                                            <button type="button" class="tag-open" @click="openTagSummary(tag)" :aria-label="t('tagSummaryOf', { name: tag.name })">
-                                                <span class="tag-dot" :style="{ background: categoryColor(tag) }" aria-hidden="true"></span>
-                                                <span class="tag-name">#{{ tag.name }}</span>
-                                                <span class="tag-period">{{ formatDate(tag.start_date) }} – {{ tag.end_date ? formatDate(tag.end_date) : t('tagRunning') }}</span>
-                                                <span class="tag-count">{{ t('transactionCount', { count: tag.count }) }}</span>
-                                                <strong class="tag-total" :class="tag.total >= 0 ? 'positive' : 'negative'">{{ formatAmount(tag.total) }} {{ currencySymbol }}</strong>
+                                        <li v-for="tag in group.list" :key="tag.id" class="tag-item" :class="{ 'tag-item-archived': !tag.active }" :style="{ '--tag-color': categoryColor(tag) }">
+                                            <!-- Named by its content (WCAG 2.5.3 Label in Name): "Summary of #tag" holds the visible #tag -->
+                                            <button type="button" class="tag-open" @click="openTagSummary(tag)">
+                                                <span class="tag-open-head">
+                                                    <span class="tag-dot" aria-hidden="true"></span>
+                                                    <span class="visually-hidden">{{ t('tagSummaryOf', { name: tag.name }) }}</span>
+                                                    <span class="tag-name" aria-hidden="true">#{{ tag.name }}</span>
+                                                    <span v-if="!tag.active" class="tag-status tag-status-archived">
+                                                        <span class="material-icons" aria-hidden="true">inventory_2</span>{{ t('tagArchived') }}
+                                                    </span>
+                                                </span>
+                                                <span class="tag-period">
+                                                    <span class="material-icons" aria-hidden="true">date_range</span>{{ formatDate(tag.start_date) }} – {{ tag.end_date ? formatDate(tag.end_date) : t('tagRunning') }}
+                                                </span>
+                                                <span v-if="tagProgress(tag) !== null" class="tag-progress" aria-hidden="true">
+                                                    <span :style="{ width: tagProgress(tag) + '%' }"></span>
+                                                </span>
+                                                <span class="tag-open-foot">
+                                                    <span class="tag-count">{{ t('transactionCount', { count: tag.count }) }}</span>
+                                                    <strong class="tag-total" :class="tag.total >= 0 ? 'positive' : 'negative'">{{ formatAmount(tag.total) }} {{ currencySymbol }}</strong>
+                                                </span>
                                             </button>
-                                            <div class="device-actions">
-                                                <button class="btn-icon" @click="openTagModal(tag)" :title="t('tagEdit')" :aria-label="t('tagEditOf', { name: tag.name })"><span class="material-icons" aria-hidden="true">edit</span></button>
+                                            <div class="device-actions tag-item-actions">
+                                                <button class="btn-icon btn-icon-edit" @click="openTagModal(tag)" :title="t('tagEdit')" :aria-label="t('tagEditOf', { name: tag.name })"><span class="material-icons" aria-hidden="true">edit</span></button>
                                                 <button class="btn-icon btn-icon-delete" @click="removeTag(tag)" :title="t('tagDelete')" :aria-label="t('tagDeleteOf', { name: tag.name })"><span class="material-icons" aria-hidden="true">delete</span></button>
                                             </div>
                                         </li>
@@ -1337,80 +1562,165 @@
                             </template>
                         </section>
 
-                        <!-- Summary of a tag: net cost, by category, day by day, its transactions -->
+                        <!-- Summary of a tag: its header, its figures, its running cost, by category, its transactions -->
                         <section v-else class="trends-card tag-summary">
-                            <div class="panel-header page-header">
-                                <div>
+                            <div class="panel-header page-header tag-summary-header">
+                                <div class="tag-summary-identity">
                                     <button type="button" class="btn-secondary tag-back" @click="closeTagSummary">
                                         <span class="material-icons" aria-hidden="true">arrow_back</span>{{ t('tagsBack') }}
                                     </button>
                                     <h3 tabindex="-1" class="tag-summary-title">
                                         <span class="tag-dot" :style="{ background: categoryColor(tagSummary.tag) }" aria-hidden="true"></span>#{{ tagSummary.tag.name }}
                                     </h3>
-                                    <p class="rules-help">
-                                        {{ formatDate(tagSummary.tag.start_date) }} – {{ tagSummary.tag.end_date ? formatDate(tagSummary.tag.end_date) : t('tagRunning') }}
-                                        · {{ tagSummary.tag.active ? t('tagActive') : t('tagArchived') }}
-                                    </p>
+                                    <div class="tag-summary-meta">
+                                        <span class="tag-status" :class="tagSummary.tag.active ? 'tag-status-active' : 'tag-status-archived'">
+                                            <span class="material-icons" aria-hidden="true">{{ tagSummary.tag.active ? 'play_circle' : 'inventory_2' }}</span>{{ tagSummary.tag.active ? t('tagActive') : t('tagArchived') }}
+                                        </span>
+                                        <span class="tag-summary-period">
+                                            <span class="material-icons" aria-hidden="true">date_range</span>{{ formatDate(tagSummary.tag.start_date) }} – {{ tagSummary.tag.end_date ? formatDate(tagSummary.tag.end_date) : t('tagRunning') }}
+                                        </span>
+                                    </div>
                                 </div>
-                                <div class="panel-actions">
+                                <div class="panel-actions tag-summary-actions">
+                                    <button type="button" class="btn-secondary" @click="openTagModal(tagSummary.tag)">
+                                        <span class="material-icons" aria-hidden="true">edit</span>{{ t('tagEdit') }}
+                                    </button>
                                     <button type="button" class="btn-secondary" @click="showTagTransactions(tagSummary.tag)">
-                                        <span class="material-icons" aria-hidden="true">receipt</span>{{ t('tagShowTransactions') }}
+                                        <span class="material-icons" aria-hidden="true">receipt_long</span>{{ t('tagShowTransactions') }}
                                     </button>
                                 </div>
                             </div>
-                            <div class="tag-summary-total">
-                                <span>{{ t('tagTotal') }}</span>
-                                <strong :class="tagSummary.total >= 0 ? 'positive' : 'negative'">{{ formatAmount(tagSummary.total) }} {{ currencySymbol }}</strong>
-                                <span class="tag-count">{{ t('transactionCount', { count: tagSummary.count }) }}</span>
+
+                            <!-- Figures: net cost, expenses and refunds, cost per day, largest expense -->
+                            <div class="tag-kpis">
+                                <div class="tag-kpi tag-summary-total">
+                                    <div class="summary-label">{{ t('tagTotal') }}</div>
+                                    <strong class="summary-value" :class="tagSummary.total >= 0 ? 'positive' : 'negative'">{{ formatAmount(tagSummary.total) }} {{ currencySymbol }}</strong>
+                                    <div class="trends-stat-sub">{{ t('transactionCount', { count: tagSummary.count }) }}</div>
+                                </div>
+                                <template v-if="tagSummary.count">
+                                    <div class="tag-kpi tag-kpi-expenses">
+                                        <div class="summary-label">{{ t('tagExpenses') }}</div>
+                                        <div class="summary-value">{{ formatAmount(tagSummaryFigures.expenses) }} {{ currencySymbol }}</div>
+                                        <div class="trends-stat-sub">{{ t('tagRefunds', { amount: formatAmount(tagSummaryFigures.refunds) + ' ' + currencySymbol }) }}</div>
+                                    </div>
+                                    <div v-if="tagSummaryFigures.perDay !== null" class="tag-kpi tag-kpi-day">
+                                        <div class="summary-label">{{ t('tagPerDay') }}</div>
+                                        <div class="summary-value">{{ formatAmount(tagSummaryFigures.perDay) }} {{ currencySymbol }}</div>
+                                        <div class="trends-stat-sub">{{ t('tagOverDays', { count: tagSummaryFigures.days }) }}</div>
+                                    </div>
+                                    <div v-if="tagSummaryFigures.largest" class="tag-kpi tag-kpi-largest">
+                                        <div class="summary-label">{{ t('tagLargestExpense') }}</div>
+                                        <div class="summary-value">{{ formatAmount(tagSummaryFigures.largest.amount) }} {{ currencySymbol }}</div>
+                                        <div class="trends-stat-sub tag-kpi-label" :title="tagSummaryFigures.largest.label">{{ tagSummaryFigures.largest.label }}</div>
+                                    </div>
+                                </template>
                             </div>
 
                             <template v-if="tagSummary.count">
-                                <h4 class="tag-summary-heading">{{ t('tagByCategory') }}</h4>
-                                <ul class="tag-categories">
-                                    <li v-for="c in tagSummary.categories" :key="c.category" class="tag-category"
-                                        :title="(categoryOf(c.category).name || t('uncategorized')) + ' : ' + formatAmount(c.total) + ' ' + currencySymbol">
-                                        <span class="tag-category-name">{{ categoryOf(c.category).name || t('uncategorized') }}</span>
-                                        <span class="tag-category-bar" aria-hidden="true">
-                                            <span :style="{ width: Math.max(2, Math.abs(c.total) / tagSummaryMax * 100) + '%', background: categoryColor(categoryOf(c.category)) }"></span>
-                                        </span>
-                                        <span class="tag-category-amount">{{ formatAmount(c.total) }} {{ currencySymbol }}</span>
-                                    </li>
-                                </ul>
+                                <div class="tag-summary-grid">
+                                    <!-- Running cost: steps from zero; a crosshair and a tooltip on hover and with the arrow keys -->
+                                    <section class="tag-panel tag-panel-chart">
+                                        <h4 class="tag-summary-heading">{{ t('tagByDay') }}</h4>
+                                        <figure class="tag-chart">
+                                            <div class="tag-chart-frame" :ref="observeTagChart" tabindex="0" role="group" :aria-label="t('tagChartExplore')"
+                                                 @keydown="moveTagChart" @focus="focusTagChart" @blur="tagChartActive = null">
+                                                <svg :viewBox="'0 0 ' + tagChartWidth + ' ' + tagChartHeight" :height="tagChartHeight" role="img"
+                                                     :aria-label="t('tagChartLabel', { name: tagSummary.tag.name })"
+                                                     @pointermove="hoverTagChart" @pointerleave="tagChartActive = null">
+                                                    <defs>
+                                                        <linearGradient id="tag-chart-fill" gradientUnits="userSpaceOnUse" x1="0" x2="0" :y1="tagSummaryChart.extreme" :y2="tagSummaryChart.zero">
+                                                            <stop offset="0" class="tag-chart-fill-far" />
+                                                            <stop offset="1" class="tag-chart-fill-near" />
+                                                        </linearGradient>
+                                                    </defs>
+                                                    <g class="tag-chart-grid">
+                                                        <template v-for="tick in tagSummaryChart.ticks" :key="tick.value">
+                                                            <line :x1="tagSummaryChart.plot.left" :x2="tagSummaryChart.plot.right" :y1="tick.y" :y2="tick.y" />
+                                                            <text :x="tagSummaryChart.plot.left - 8" :y="tick.y + 4" text-anchor="end">{{ formatCompact(tick.value) }}</text>
+                                                        </template>
+                                                    </g>
+                                                    <path class="tag-chart-area" :d="tagSummaryChart.area" fill="url(#tag-chart-fill)" />
+                                                    <line class="tag-chart-zero" :x1="tagSummaryChart.plot.left" :x2="tagSummaryChart.plot.right" :y1="tagSummaryChart.zero" :y2="tagSummaryChart.zero" />
+                                                    <path class="tag-chart-line" :d="tagSummaryChart.line" />
+                                                    <text v-for="label in tagSummaryChart.labels" :key="label.date" class="tag-chart-axis"
+                                                          :x="label.x" :y="tagSummaryChart.plot.bottom + 20" :text-anchor="label.anchor">{{ formatShortDay(label.date) }}</text>
+                                                    <line v-if="tagChartPoint" class="tag-chart-cursor" :x1="tagChartPoint.x" :x2="tagChartPoint.x"
+                                                          :y1="tagSummaryChart.plot.top" :y2="tagSummaryChart.plot.bottom" />
+                                                    <template v-if="tagSummaryChart.points.length <= 60">
+                                                        <circle v-for="p in tagSummaryChart.points" :key="p.date" class="tag-chart-dot" :cx="p.x" :cy="p.y" r="4" />
+                                                    </template>
+                                                    <circle v-if="tagChartPoint" class="tag-chart-dot tag-chart-dot-active" :cx="tagChartPoint.x" :cy="tagChartPoint.y" r="6" />
+                                                </svg>
+                                                <div v-if="tagChartPoint" class="tag-chart-tooltip" aria-hidden="true"
+                                                     :style="tagChartPoint.x > tagChartWidth / 2 ? { right: (tagChartWidth - tagChartPoint.x + 12) + 'px' } : { left: (tagChartPoint.x + 12) + 'px' }">
+                                                    <strong>{{ formatDate(tagChartPoint.date) }}</strong>
+                                                    <div>{{ t('tagCumulative') }}<span>{{ formatAmount(tagChartPoint.cumulative) }} {{ currencySymbol }}</span></div>
+                                                    <div class="tag-chart-tooltip-day">{{ t('tagDayTotal') }}<span>{{ formatAmount(tagChartPoint.total) }} {{ currencySymbol }}</span></div>
+                                                </div>
+                                            </div>
+                                            <p class="visually-hidden" aria-live="polite">
+                                                <template v-if="tagChartPoint">{{ formatDate(tagChartPoint.date) }} : {{ t('tagCumulative') }} {{ formatAmount(tagChartPoint.cumulative) }} {{ currencySymbol }}, {{ t('tagDayTotal') }} {{ formatAmount(tagChartPoint.total) }} {{ currencySymbol }}</template>
+                                            </p>
+                                            <details class="tag-chart-table">
+                                                <summary>{{ t('tagChartTable') }}</summary>
+                                                <table class="insight-table">
+                                                    <thead><tr><th scope="col">{{ t('transactionDate') }}</th><th scope="col">{{ t('tagDayTotal') }}</th><th scope="col">{{ t('tagCumulative') }}</th></tr></thead>
+                                                    <tbody>
+                                                        <tr v-for="d in tagSummary.days" :key="d.date">
+                                                            <td>{{ formatDate(d.date) }}</td>
+                                                            <td>{{ formatAmount(d.total) }} {{ currencySymbol }}</td>
+                                                            <td>{{ formatAmount(d.cumulative) }} {{ currencySymbol }}</td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </details>
+                                        </figure>
+                                    </section>
 
-                                <h4 class="tag-summary-heading">{{ t('tagByDay') }}</h4>
-                                <figure class="tag-chart">
-                                    <svg viewBox="-8 -8 616 176" role="img" :aria-label="t('tagChartLabel', { name: tagSummary.tag.name })" preserveAspectRatio="none">
-                                        <line x1="0" x2="600" :y1="tagSummaryChart.zero" :y2="tagSummaryChart.zero" class="tag-chart-zero" />
-                                        <path :d="tagSummaryChart.path" class="tag-chart-line" vector-effect="non-scaling-stroke" />
-                                        <g v-for="p in tagSummaryChart.points" :key="p.date" class="tag-chart-point">
-                                            <circle :cx="p.x" :cy="p.y" r="12" class="tag-chart-hit"><title>{{ formatDate(p.date) }} : {{ formatAmount(p.cumulative) }} {{ currencySymbol }}</title></circle>
-                                            <circle :cx="p.x" :cy="p.y" r="4" class="tag-chart-dot" vector-effect="non-scaling-stroke" />
-                                        </g>
-                                    </svg>
-                                    <details class="tag-chart-table">
-                                        <summary>{{ t('tagChartTable') }}</summary>
-                                        <table class="insight-table">
-                                            <thead><tr><th scope="col">{{ t('transactionDate') }}</th><th scope="col">{{ t('tagDayTotal') }}</th><th scope="col">{{ t('tagCumulative') }}</th></tr></thead>
-                                            <tbody>
-                                                <tr v-for="d in tagSummary.days" :key="d.date">
-                                                    <td>{{ formatDate(d.date) }}</td>
-                                                    <td>{{ formatAmount(d.total) }} {{ currencySymbol }}</td>
-                                                    <td>{{ formatAmount(d.cumulative) }} {{ currencySymbol }}</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </details>
-                                </figure>
+                                    <!-- By category: its icon and color, its amount and its share, largest first -->
+                                    <section class="tag-panel tag-panel-categories">
+                                        <h4 class="tag-summary-heading">{{ t('tagByCategory') }}</h4>
+                                        <ul class="tag-categories">
+                                            <li v-for="c in tagSummaryCategories" :key="c.category" class="tag-category">
+                                                <span class="tag-category-icon" :style="categoryBadgeStyle(categoryOf(c.category))">
+                                                    <span class="material-icons" aria-hidden="true">{{ categoryOf(c.category).name ? categoryIcon(categoryOf(c.category)) : 'help_outline' }}</span>
+                                                </span>
+                                                <div class="tag-category-body">
+                                                    <div class="tag-category-line">
+                                                        <span class="tag-category-name">{{ categoryOf(c.category).name || t('uncategorized') }}</span>
+                                                        <span class="tag-category-amount" :class="{ positive: c.total > 0 }">{{ formatAmount(c.total) }} {{ currencySymbol }}</span>
+                                                    </div>
+                                                    <div class="tag-category-bar" aria-hidden="true" :style="{ '--bar-color': categoryColor(categoryOf(c.category)) }">
+                                                        <span :style="{ width: c.width + '%' }"></span>
+                                                    </div>
+                                                    <div class="tag-category-sub">
+                                                        <span>{{ t('transactionCount', { count: c.count }) }}</span>
+                                                        <span class="tag-category-share">{{ formatShare(c.share) }}</span>
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        </ul>
+                                    </section>
+                                </div>
 
-                                <h4 class="tag-summary-heading">{{ t('tagTransactions') }}</h4>
-                                <ul class="tag-transactions">
-                                    <li v-for="item in tagSummary.transactions" :key="item.id" class="tag-transaction">
-                                        <span class="tag-transaction-date">{{ formatDate(item.date) }}</span>
-                                        <span class="tag-transaction-label">{{ item.label }}</span>
-                                        <span class="category-chip">{{ categoryOf(item.category).name || t('uncategorized') }}</span>
-                                        <span class="tag-transaction-amount" :class="item.amount >= 0 ? 'positive' : 'negative'">{{ formatAmount(item.amount) }} {{ currencySymbol }}</span>
-                                    </li>
-                                </ul>
+                                <!-- Its transactions, as in the Transactions tab: icon of the category, label, date, category, amount -->
+                                <section class="tag-panel tag-panel-transactions">
+                                    <h4 class="tag-summary-heading">{{ t('tagTransactions') }}</h4>
+                                    <ul class="tag-transactions">
+                                        <li v-for="item in tagSummary.transactions" :key="item.id" class="tag-transaction">
+                                            <span class="transaction-icon tag-transaction-icon" :class="transactionCategory(item) ? '' : 'type-' + item.type" :style="transactionIconStyle(item)">
+                                                <span class="material-icons" aria-hidden="true">{{ transactionIcon(item) }}</span>
+                                            </span>
+                                            <span class="tag-transaction-main">
+                                                <span class="tag-transaction-label">{{ item.label }}</span>
+                                                <span class="tag-transaction-date">{{ formatDate(item.date) }}</span>
+                                            </span>
+                                            <span class="category-chip">{{ categoryOf(item.category).name || t('uncategorized') }}</span>
+                                            <span class="tag-transaction-amount" :class="item.amount >= 0 ? 'positive' : 'negative'">{{ formatAmount(item.amount) }} {{ currencySymbol }}</span>
+                                        </li>
+                                    </ul>
+                                </section>
                             </template>
                             <p v-else class="transactions-hint">{{ t('tagNoTransaction') }}</p>
                         </section>
@@ -1427,9 +1737,9 @@
                                     <p class="rules-help">{{ t('rulesHelp') }}</p>
                                 </div>
                                 <div class="panel-actions">
+                                    <!-- Named by its visible text (WCAG 2.5.3), the title describes what it does -->
                                     <button class="btn-secondary" @click="applyRules" :disabled="applyingRules"
-                                            :title="t(keepCategorized ? 'applyRulesHelpUncategorized' : 'applyRulesHelp')"
-                                            :aria-label="t(keepCategorized ? 'applyRulesHelpUncategorized' : 'applyRulesHelp')">
+                                            :title="t(keepCategorized ? 'applyRulesHelpUncategorized' : 'applyRulesHelp')">
                                         <span class="material-icons" aria-hidden="true">auto_fix_high</span>
                                         {{ t('applyRules') }}
                                     </button>
@@ -1463,8 +1773,8 @@
                                     <div class="rules-group-name">{{ group.category }}</div>
                                     <div class="rules-chips">
                                         <button v-for="rule in group.rules" :key="rule.id" type="button" class="rule-chip" :class="{ 'rule-chip-notify': Number(rule.notify) }"
-                                                @click="openRuleModal(rule)" :aria-label="t('editRule') + ' ' + rule.keyword">
-                                            {{ rule.keyword }}
+                                                @click="openRuleModal(rule)" :aria-label="t('editRule') + ' ' + ruleLabel(rule)">
+                                            {{ rule.keyword }}<span v-if="rule.amount !== null && rule.amount !== undefined" class="rule-amount">· {{ formatAmount(rule.amount) }} {{ currencySymbol }}</span>
                                             <span v-if="Number(rule.notify)" class="material-icons rule-notify" :title="t('ruleNotify')" aria-hidden="true">notifications_active</span>
                                         </button>
                                     </div>
@@ -1507,6 +1817,7 @@
                                         <span class="category-row-name">{{ node.category.name }}</span>
                                         <span v-if="Number(node.category.id) === 0" class="category-chip">{{ t('categoryDefault') }}</span>
                                         <template v-else>
+                                            <button class="btn-icon" @click="openSubcategoryModal(node.category)" :title="t('addSubcategory', { name: node.category.name })" :aria-label="t('addSubcategory', { name: node.category.name })"><span class="material-icons" aria-hidden="true">add</span></button>
                                             <button class="btn-icon" @click="openCategoryModal(node.category)" :title="t('editCategory')" :aria-label="t('editCategory')"><span class="material-icons" aria-hidden="true">edit</span></button>
                                             <button class="btn-icon btn-icon-delete" @click="removeCategory(node.category)" :title="t('deleteCategory')" :aria-label="t('deleteCategory')"><span class="material-icons" aria-hidden="true">delete</span></button>
                                         </template>
@@ -1531,10 +1842,11 @@
                 <!-- Accounts Tab: followed accounts and synchronization -->
                 <div v-else-if="activeTab === 'accounts'" key="accounts" class="tab-panel">
                     <div class="trends-view">
-                        <section class="trends-card">
+                        <!-- Accounts synchronized with woob: sync, update of the modules, connection of a bank -->
+                        <section class="trends-card accounts-synced" aria-labelledby="accounts-synced-title">
                             <div class="panel-header page-header">
                                 <div>
-                                    <h2>{{ t('accountsTitle') }}</h2>
+                                    <h2 id="accounts-synced-title">{{ t('syncedAccountsTitle') }}</h2>
                                     <p class="rules-help">{{ t('accountsHelp') }}</p>
                                 </div>
                                 <div class="panel-actions">
@@ -1548,10 +1860,10 @@
                                         <span class="material-icons" :class="{ spin: woobUpdate.running }" aria-hidden="true">system_update_alt</span>
                                         {{ t('woobUpdateButton') }}
                                     </button>
-                                    <!-- Step 1 of the addition of accounts: a labeled entry point -->
-                                    <button type="button" class="btn-add" @click="openConnectModal()">
-                                        <span class="material-icons" aria-hidden="true">add_link</span>
-                                        {{ t('connectBankTitle') }}
+                                    <!-- Round + button: accounts of a bank already connected, or a new bank -->
+                                    <button type="button" class="btn-add btn-add-icon" @click="openAddAccountsPicker()"
+                                            :title="t('addAccountsFromBank')" :aria-label="t('addAccountsFromBank')">
+                                        <span class="material-icons" aria-hidden="true">add</span>
                                     </button>
                                 </div>
                             </div>
@@ -1559,7 +1871,6 @@
                             <!-- The banks connected in woob (one per login), each with its followed accounts
                                  below it; the accounts of no connected bank (removed connection, imported
                                  file) in a last group -->
-                            <h3 class="accounts-section-title">{{ t('connectedBanksTitle') }}</h3>
                             <div v-if="bankGroups.length === 0" class="transactions-hint">{{ t('noConnectedBank') }}</div>
                             <ul v-else class="bank-groups">
                                 <li v-for="g in bankGroups" :key="g.key" class="bank-group">
@@ -1618,29 +1929,6 @@
                                         </li>
                                     </ul>
                                     <p v-else class="bank-group-empty">{{ t('noFollowedAccountInBank') }}</p>
-                                </li>
-                            </ul>
-
-                            <!-- Accounts whose transactions are entered by hand: cash, a bank woob does not support -->
-                            <div class="accounts-section-header">
-                                <h3 class="accounts-section-title">{{ t('manualAccountsTitle') }}</h3>
-                                <button type="button" class="btn-secondary manual-account-add" @click="openManualAccountModal()">
-                                    <span class="material-icons" aria-hidden="true">account_balance_wallet</span>
-                                    {{ t('manualAccountAdd') }}
-                                </button>
-                            </div>
-                            <p class="rules-help">{{ t('manualAccountsHelp') }}</p>
-                            <ul v-if="manualBankAccounts.length" class="accounts-list manual-accounts" :aria-label="t('manualAccountsTitle')">
-                                <li v-for="a in manualBankAccounts" :key="a.id" class="account-item">
-                                    <span class="material-icons account-icon" aria-hidden="true">account_balance_wallet</span>
-                                    <div class="account-details">
-                                        <div class="account-name">{{ accountName(a) }}</div>
-                                        <code class="device-token">{{ a.account_number }}</code>
-                                    </div>
-                                    <div class="device-actions">
-                                        <button class="btn-icon" @click="openAccountModal(a)" :title="t('editAccount')" :aria-label="t('editAccount')"><span class="material-icons" aria-hidden="true">edit</span></button>
-                                        <button class="btn-icon btn-icon-delete" @click="removeAccount(a)" :title="t('deleteAccount')" :aria-label="t('deleteAccount')"><span class="material-icons" aria-hidden="true">delete</span></button>
-                                    </div>
                                 </li>
                             </ul>
                         </section>
@@ -1723,6 +2011,36 @@
                                 </button>
                             </div>
                         </section>
+
+                        <!-- Accounts whose transactions are entered by hand: cash, a bank woob does not support -->
+                        <section class="trends-card accounts-manual" aria-labelledby="accounts-manual-title">
+                            <div class="panel-header page-header">
+                                <div>
+                                    <h2 id="accounts-manual-title">{{ t('manualAccountsTitle') }}</h2>
+                                    <p class="rules-help">{{ t('manualAccountsHelp') }}</p>
+                                </div>
+                                <div class="panel-actions">
+                                    <button type="button" class="btn-add btn-add-icon" @click="openManualAccountModal()"
+                                            :title="t('manualAccountAdd')" :aria-label="t('manualAccountAdd')">
+                                        <span class="material-icons" aria-hidden="true">add</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="manualBankAccounts.length === 0" class="transactions-hint">{{ t('manualAccountsEmpty') }}</div>
+                            <ul v-else class="accounts-list manual-accounts" :aria-label="t('manualAccountsTitle')">
+                                <li v-for="a in manualBankAccounts" :key="a.id" class="account-item">
+                                    <span class="material-icons account-icon" aria-hidden="true">account_balance_wallet</span>
+                                    <div class="account-details">
+                                        <div class="account-name">{{ accountName(a) }}</div>
+                                        <code class="device-token">{{ a.account_number }}</code>
+                                    </div>
+                                    <div class="device-actions">
+                                        <button class="btn-icon" @click="openAccountModal(a)" :title="t('editAccount')" :aria-label="t('editAccount')"><span class="material-icons" aria-hidden="true">edit</span></button>
+                                        <button class="btn-icon btn-icon-delete" @click="removeAccount(a)" :title="t('deleteAccount')" :aria-label="t('deleteAccount')"><span class="material-icons" aria-hidden="true">delete</span></button>
+                                    </div>
+                                </li>
+                            </ul>
+                        </section>
                     </div>
                 </div>
 
@@ -1750,6 +2068,10 @@
                                     <div class="config-label">
                                         <label :for="'config-' + setting.key"><code>{{ setting.key }}</code></label>
                                         <span v-if="configHelp(setting.key)" class="config-help">{{ configHelp(setting.key) }}</span>
+                                        <span v-if="configWarning(setting.key)" class="config-warning" role="note">
+                                            <span class="material-icons" aria-hidden="true">warning</span>
+                                            <span><span class="visually-hidden">{{ t('configWarningLabel') }}: </span>{{ configWarning(setting.key) }}</span>
+                                        </span>
                                     </div>
                                     <div class="config-value">
                                         <template v-if="setting.editable && configData.writable">
@@ -2054,6 +2376,47 @@
                         <div v-if="backupImportFile" class="backup-actions">
                             <button type="button" class="btn-danger backup-import-button" @click="confirmBackupImport" :disabled="!backupImportSelected.length">
                                 <span class="material-icons" aria-hidden="true">settings_backup_restore</span>{{ t('backupImportButton') }}
+                            </button>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Purge Tab (administrators): deletes the chosen datasets, from the local network only -->
+                <div v-else-if="activeTab === 'purge'" key="purge" class="tab-panel">
+                    <section class="trends-card config-card backup-card" aria-labelledby="purge-title">
+                        <div class="panel-header">
+                            <div>
+                                <h2 id="purge-title">{{ t('purgeTitle') }}</h2>
+                                <p class="rules-help">{{ t('purgeHelp') }}</p>
+                            </div>
+                        </div>
+                        <p class="backup-warning">
+                            <span class="material-icons" aria-hidden="true">warning</span>{{ t('purgeWarning') }}
+                        </p>
+                        <p v-if="!purgeLocal" class="sync-step-error purge-not-local" role="alert">
+                            <span class="material-icons" aria-hidden="true">lock</span>{{ t('purgeNotLocal') }}
+                        </p>
+                        <div v-if="loadingPurge && !purgeDatasets.length" class="loading">
+                            <div class="material-icons spin" aria-hidden="true">refresh</div>
+                            <p>{{ t('loadingMessage') }}</p>
+                        </div>
+                        <fieldset v-else class="backup-datasets">
+                            <legend class="visually-hidden">{{ t('purgeDatasets') }}</legend>
+                            <label v-for="dataset in purgeDatasets" :key="dataset.name" class="backup-dataset" :class="{ selected: purgeSelected.has(dataset.name) }">
+                                <input type="checkbox" :checked="purgeSelected.has(dataset.name)" :disabled="!purgeLocal || purgeForced.has(dataset.name)"
+                                       :data-dataset="dataset.name" @change="togglePurgeDataset(dataset.name, $event.target.checked)" />
+                                <span class="material-icons backup-dataset-icon" aria-hidden="true">{{ backupDatasetIcon(dataset.name) }}</span>
+                                <span class="backup-dataset-name">{{ backupDatasetLabel(dataset.name) }}<small v-if="purgeForced.has(dataset.name)" class="purge-forced">{{ t('purgeWithParent') }}</small></span>
+                                <span class="backup-dataset-count">{{ t('backupRows', { count: dataset.count }) }}</span>
+                            </label>
+                        </fieldset>
+                        <div v-if="purgeError" class="sync-step-error" role="alert">{{ purgeError }}</div>
+                        <div class="backup-actions">
+                            <button type="button" class="btn-secondary purge-backup-first" @click="setActiveTab('backup')">
+                                <span class="material-icons" aria-hidden="true">backup</span>{{ t('purgeBackupFirst') }}
+                            </button>
+                            <button type="button" class="btn-danger purge-button" @click="confirmPurge" :disabled="!purgeLocal || !purgeSelected.size">
+                                <span class="material-icons" aria-hidden="true">delete_forever</span>{{ t('purgeButton') }}
                             </button>
                         </div>
                     </section>
@@ -2709,6 +3072,13 @@
                             <p v-if="importPreview.counts.duplicate" class="rules-help">
                                 <span class="material-icons inline-icon" aria-hidden="true">content_copy</span>{{ t('importDuplicateHelp') }}
                             </p>
+                            <div v-if="manualAccounts.length" class="form-group import-account">
+                                <label for="import-account">{{ t('importAccountLabel') }}</label>
+                                <select id="import-account" v-model="importAccountId" :disabled="importing">
+                                    <option value="">{{ importPreview.account ? t('importAccountOfFile', { account: importPreview.account }) : t('importAccountNone') }}</option>
+                                    <option v-for="a in manualAccounts" :key="a.id" :value="a.id">{{ a.label || accountName(a) }}</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="import-list-head">
@@ -2773,10 +3143,7 @@
                         </button>
                     </div>
                     <dl class="transaction-detail-list">
-                        <dt>{{ t('transactionDate') }}</dt><dd>{{ formatDate(transactionDetail.date) }}</dd>
-                        <template v-if="transactionDetail.rdate && transactionDetail.rdate !== transactionDetail.date">
-                            <dt>{{ t('transactionRealDate') }}</dt><dd>{{ formatDate(transactionDetail.rdate) }}</dd>
-                        </template>
+                        <dt>{{ t('transactionRealDate') }}</dt><dd>{{ formatDate(transactionDetail.rdate || transactionDetail.date) }}</dd>
                         <dt>{{ t('transactionType') }}</dt><dd>{{ getTransactionType(transactionDetail.type) }}</dd>
                         <template v-if="transactionDetail.card">
                             <dt>{{ t('transactionCard') }}</dt><dd>{{ transactionDetail.card }}</dd>
@@ -2787,8 +3154,13 @@
                         <dt>{{ t('transactionImported') }}</dt><dd>{{ formatDate(transactionDetail.imported) }}</dd>
                     </dl>
                     <div class="form-group">
+                        <label for="detail-date">{{ t('transactionCountedOn') }}</label>
+                        <input id="detail-date" type="date" v-model="transactionDetailDate" required aria-describedby="detail-date-help" />
+                        <small id="detail-date-help">{{ t('transactionCountedOnHelp') }}</small>
+                    </div>
+                    <div class="form-group">
                         <label>{{ t('categoryLabel') }}</label>
-                        <category-picker v-model="transactionDetailCategory" :categories="ruleCategories" :t="t" with-default
+                        <category-picker v-model="transactionDetailCategory" :categories="ruleCategories" :t="t" with-default :amount="transactionDetail.amount"
                                          :icon-for="categoryIcon" :color-for="categoryColor"></category-picker>
                     </div>
                     <label class="setup-checkbox">
@@ -2796,7 +3168,7 @@
                         {{ t('transactionChecked') }}
                     </label>
                     <div class="form-group transaction-detail-tags">
-                        <label :for="tagsToOffer(transactionDetail).length ? 'detail-tag' : null">{{ t('tagsOfTransaction') }}</label>
+                        <label for="detail-tag" class="detail-section-title">{{ t('tagsOfTransaction') }}</label>
                         <ul v-if="transactionTags(transactionDetail).length" class="transaction-tags">
                             <li v-for="tag in transactionTags(transactionDetail)" :key="tag.id" class="tag-chip">
                                 <span class="tag-dot" :style="{ background: categoryColor(tag) }" aria-hidden="true"></span><span class="tag-chip-name">#{{ tag.name }}</span>
@@ -2805,16 +3177,18 @@
                                 </button>
                             </li>
                         </ul>
-                        <div v-if="tagsToOffer(transactionDetail).length" class="tag-add-row">
-                            <select id="detail-tag" v-model="detailTagToAdd">
-                                <option value="">{{ t('tagChoose') }}</option>
-                                <option v-for="tag in tagsToOffer(transactionDetail)" :key="tag.id" :value="tag.id">#{{ tag.name }}</option>
-                            </select>
-                            <button type="button" class="btn-secondary" @click="addDetailTag(transactionDetail)" :disabled="detailTagToAdd === ''">
-                                <span class="material-icons" aria-hidden="true">sell</span>{{ t('tagAdd') }}
-                            </button>
-                        </div>
-                        <p v-else-if="!transactionTags(transactionDetail).length" class="rules-help">{{ t('tagNoneActive') }}</p>
+                        <tag-input input-id="detail-tag" :tags="tagsToOffer(transactionDetail)" :all-tags="tags" :t="t" :color-for="categoryColor"
+                                   @select="id => addDetailTag(transactionDetail, id)" @create="name => createDetailTag(transactionDetail, name)"></tag-input>
+                        <!-- No active tag yet: typed in the field, or created in the Tags tab -->
+                        <p v-if="!activeTags.length" class="rules-help tag-none-active">
+                            <template v-for="(part, i) in t('tagNoneActive', { link: '{link}' }).split('{link}')" :key="i"><a v-if="i > 0" href="#" class="tag-tab-link" @click.prevent="goToTagsTab">{{ t('tagNoneActiveLink') }}</a>{{ part }}</template>
+                        </p>
+                    </div>
+                    <div class="form-group">
+                        <label for="detail-comment">{{ t('transactionComment') }}</label>
+                        <textarea id="detail-comment" class="transaction-detail-comment" rows="3" maxlength="500" v-model="transactionDetailComment"
+                                  :placeholder="t('transactionCommentPlaceholder')" aria-describedby="detail-comment-help"></textarea>
+                        <small id="detail-comment-help">{{ t('transactionCommentHelp') }}</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -2822,9 +3196,9 @@
                             :title="t('deleteTransaction')" :aria-label="t('deleteTransaction')">
                         <span class="material-icons" aria-hidden="true">delete</span>
                     </button>
-                    <button v-if="isManual(transactionDetail)" type="button" class="btn-secondary" @click="editManualTransaction(transactionDetail)" :disabled="savingTransaction">
+                    <button v-if="isManual(transactionDetail)" type="button" class="btn-secondary btn-icon-only btn-square-icon" @click="editManualTransaction(transactionDetail)" :disabled="savingTransaction"
+                            :title="t('manualTransactionEdit')" :aria-label="t('manualTransactionEdit')">
                         <span class="material-icons" aria-hidden="true">edit</span>
-                        {{ t('manualTransactionEdit') }}
                     </button>
                     <button type="button" class="btn-secondary btn-icon-only" @click="openSplit" :disabled="savingTransaction" :title="t('splitHelp')" :aria-label="t('splitButton')">
                         <span class="material-icons" aria-hidden="true">call_split</span>
@@ -2892,7 +3266,7 @@
             </div>
         </div>
 
-        <!-- Transaction entered by hand on a manual account (new one, or changed) -->
+        <!-- Transaction entered by hand on an account, manual or synchronized (new one, or changed) -->
         <div v-if="showManualModal" class="modal-overlay" @click.self="closeManualModal" @keydown.esc="closeManualModal">
             <div class="modal modal-form modal-manual" role="dialog" aria-modal="true" aria-labelledby="manual-modal-title">
                 <div class="modal-header">
@@ -2902,19 +3276,13 @@
                         <span class="material-icons" aria-hidden="true">close</span>
                     </button>
                 </div>
-                <div v-if="manualForm.id === null && manualAccounts.length === 0" class="modal-body">
-                    <p class="rules-help">{{ isAdmin ? t('manualNoAccountAdmin') : t('manualNoAccount') }}</p>
-                    <button v-if="isAdmin" type="button" class="btn-add" @click="goToManualAccounts">
-                        <span class="material-icons" aria-hidden="true">account_balance_wallet</span>
-                        {{ t('manualAccountAdd') }}
-                    </button>
-                </div>
-                <div v-else class="modal-body manual-form">
+                <div class="modal-body manual-form">
                     <div v-if="manualForm.id === null" class="form-group">
                         <label for="manual-account">{{ t('manualAccount') }}</label>
-                        <select id="manual-account" v-model="manualForm.account">
-                            <option v-for="a in manualAccounts" :key="a.id" :value="a.id">{{ a.label || a.account_number }}</option>
+                        <select id="manual-account" v-model="manualForm.account" :aria-describedby="manualAccountSynced ? 'manual-account-help' : null">
+                            <option v-for="a in manualAccounts" :key="a.id" :value="a.id">{{ a.label || accountName(a) }}</option>
                         </select>
+                        <small v-if="manualAccountSynced" id="manual-account-help">{{ t('manualSyncedHelp') }}</small>
                     </div>
                     <fieldset class="manual-direction">
                         <legend class="visually-hidden">{{ t('manualDirection') }}</legend>
@@ -2937,8 +3305,14 @@
                     </div>
                     <div v-if="manualForm.id === null" class="form-group">
                         <label>{{ t('categoryLabel') }}</label>
-                        <category-picker v-model="manualForm.category" :categories="ruleCategories" :t="t" with-default
+                        <category-picker v-model="manualForm.category" :categories="ruleCategories" :t="t" with-default :amount="manualForm.direction === 'income' ? 1 : -1"
                                          :placeholder="t('manualCategoryAuto')" :icon-for="categoryIcon" :color-for="categoryColor"></category-picker>
+                    </div>
+                    <div class="form-group">
+                        <label for="manual-comment">{{ t('transactionComment') }}</label>
+                        <textarea id="manual-comment" class="transaction-detail-comment" rows="3" maxlength="500" v-model="manualForm.comment"
+                                  :placeholder="t('transactionCommentPlaceholder')" aria-describedby="manual-comment-help"></textarea>
+                        <small id="manual-comment-help">{{ t('transactionCommentHelp') }}</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -2946,7 +3320,7 @@
                         <span class="material-icons" aria-hidden="true">cancel</span>
                         {{ t('cancel') }}
                     </button>
-                    <button v-if="manualForm.id !== null || manualAccounts.length > 0" @click="saveManualTransaction" :disabled="savingManual || !manualValid">
+                    <button @click="saveManualTransaction" :disabled="savingManual || !manualValid">
                         <span class="material-icons" aria-hidden="true">check_circle</span>
                         {{ t('save') }}
                     </button>
@@ -2999,11 +3373,21 @@
                     <fieldset class="advanced-search-list">
                         <legend>{{ t('advancedSearchCategories') }}</legend>
                         <small class="advanced-search-help">{{ t('advancedSearchCategoriesHelp') }}</small>
-                        <div class="advanced-search-options">
-                            <label v-for="option in searchCategoryOptions" :key="option.id" :class="{ child: option.child }">
-                                <input type="checkbox" :value="option.id" v-model="searchDraft.categories" /> {{ option.name }}
-                            </label>
-                        </div>
+                        <!-- The categories chosen, each one removable, then the list of the portal to add one -->
+                        <ul v-if="searchDraftCategories.length" class="advanced-search-categories">
+                            <li v-for="category in searchDraftCategories" :key="category.id" class="advanced-search-category">
+                                <span class="category-badge" :style="badgeStyleFor(categoryColor(category))">
+                                    <span class="material-icons" aria-hidden="true">{{ categoryIcon(category) }}</span>
+                                </span>
+                                <span class="advanced-search-category-name">{{ category.name }}</span>
+                                <button type="button" @click="removeSearchCategory(category.id)"
+                                        :title="t('advancedSearchRemove', { filter: category.name })" :aria-label="t('advancedSearchRemove', { filter: category.name })">
+                                    <span class="material-icons" aria-hidden="true">close</span>
+                                </button>
+                            </li>
+                        </ul>
+                        <category-picker :model-value="''" @update:model-value="addSearchCategory" :categories="searchCategoryChoices" :t="t" with-default
+                                         :placeholder="t('advancedSearchAddCategory')" :icon-for="categoryIcon" :color-for="categoryColor"></category-picker>
                     </fieldset>
                     <fieldset v-if="searchAccounts.length > 1" class="advanced-search-list">
                         <legend>{{ t('advancedSearchAccounts') }}</legend>
@@ -3044,7 +3428,7 @@
                     </p>
                     <ul class="split-parts">
                         <li v-for="(part, index) in splitParts" :key="index" class="split-part">
-                            <category-picker v-model="part.category" :categories="ruleCategories" :t="t" with-default
+                            <category-picker v-model="part.category" :categories="ruleCategories" :t="t" with-default :amount="splitBankAmount"
                                              :placeholder="t('chooseCategory')" :icon-for="categoryIcon" :color-for="categoryColor"></category-picker>
                             <input type="number" step="0.01" min="0" inputmode="decimal" v-model="part.amount"
                                    :aria-label="t('splitPartAmount', { number: index + 1 })" @keydown.enter="splitValid && saveSplit()" />
@@ -3071,10 +3455,10 @@
                     </p>
                 </div>
                 <div class="modal-footer">
-                    <button v-if="transactionParts(splitTransaction).length" type="button" class="btn-danger modal-footer-start"
-                            @click="cancelSplit" :disabled="savingSplit">
-                        <span class="material-icons" aria-hidden="true">undo</span>
-                        {{ t('splitCancel') }}
+                    <!-- Small trash button at the bottom left, as in the detail of a transaction -->
+                    <button v-if="transactionParts(splitTransaction).length" type="button" class="btn-danger btn-danger-icon modal-footer-start"
+                            @click="cancelSplit" :disabled="savingSplit" :title="t('splitCancel')" :aria-label="t('splitCancel')">
+                        <span class="material-icons" aria-hidden="true">delete</span>
                     </button>
                     <button class="btn-secondary" @click="closeSplit">
                         <span class="material-icons" aria-hidden="true">cancel</span>
@@ -3242,8 +3626,10 @@
                     </div>
                 </form>
                 <div class="modal-footer">
-                    <button v-if="insightAlertForm.exists" type="button" class="btn-secondary modal-footer-start" @click="removeInsightAlert" :disabled="savingInsightAlert">
-                        <span class="material-icons" aria-hidden="true">notifications_off</span>{{ t('insightAlertRemove') }}
+                    <!-- Small trash button at the bottom left, as in the detail of a transaction -->
+                    <button v-if="insightAlertForm.exists" type="button" class="btn-danger btn-danger-icon modal-footer-start" @click="removeInsightAlert" :disabled="savingInsightAlert"
+                            :title="t('insightAlertRemove')" :aria-label="t('insightAlertRemove')">
+                        <span class="material-icons" aria-hidden="true">delete</span>
                     </button>
                     <button type="button" class="btn-secondary" @click="closeInsightAlert">
                         <span class="material-icons" aria-hidden="true">close</span>{{ t('cancel') }}
@@ -3324,6 +3710,50 @@
                     <button type="submit" form="insight-form" :disabled="savingInsight">
                         <span class="material-icons" aria-hidden="true">check_circle</span>
                         {{ t('save') }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trend Chart Modal -->
+        <div v-if="trendChartForm" class="modal-overlay" @click.self="closeTrendChartModal">
+            <div class="modal modal-form" role="dialog" aria-modal="true" aria-labelledby="modal-title-9">
+                <div class="modal-header">
+                    <span class="material-icons" aria-hidden="true">add_chart</span>
+                    <h3 id="modal-title-9">{{ t('trendChartAdd') }}</h3>
+                    <button class="modal-close" @click="closeTrendChartModal" :aria-label="t('close')">
+                        <span class="material-icons" aria-hidden="true">close</span>
+                    </button>
+                </div>
+                <form class="modal-body" id="trend-chart-form" @submit.prevent="submitTrendChart">
+                    <div class="form-group">
+                        <label for="trend-chart-type">{{ t('trendChartType') }}</label>
+                        <select id="trend-chart-type" v-model="trendChartForm.type">
+                            <option value="category">{{ t('trendChartCategory') }}</option>
+                            <option value="insight">{{ t('trendChartInsight') }}</option>
+                        </select>
+                    </div>
+                    <div v-if="trendChartForm.type === 'category'" class="form-group">
+                        <label id="trend-chart-category-label">{{ t('trendChartCategory') }}</label>
+                        <category-picker v-model="trendChartForm.category" :categories="ruleCategories" :t="t"
+                                         :icon-for="categoryIcon" :color-for="categoryColor" aria-labelledby="trend-chart-category-label"></category-picker>
+                    </div>
+                    <div v-else class="form-group">
+                        <label for="trend-chart-insight">{{ t('trendChartInsight') }}</label>
+                        <select id="trend-chart-insight" v-model="trendChartForm.insight">
+                            <option value="">{{ t('trendChartChooseInsight') }}</option>
+                            <option v-for="insight in trendChartInsights" :key="insight.id" :value="insight.id">{{ getInsightName(insight.name) }}</option>
+                        </select>
+                    </div>
+                </form>
+                <div class="modal-footer">
+                    <button class="btn-secondary" @click="closeTrendChartModal">
+                        <span class="material-icons" aria-hidden="true">cancel</span>
+                        {{ t('cancel') }}
+                    </button>
+                    <button type="submit" form="trend-chart-form" :disabled="savingTrendCharts">
+                        <span class="material-icons" aria-hidden="true">check_circle</span>
+                        {{ t('trendChartAddButton') }}
                     </button>
                 </div>
             </div>
@@ -3421,6 +3851,12 @@
                         <label for="rule-keyword">{{ t('ruleKeyword') }} *</label>
                         <input id="rule-keyword" type="text" v-model="newRule.keyword" maxlength="60" :placeholder="t('ruleKeywordPlaceholder')" />
                         <small>{{ t('ruleKeywordHelp') }}</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="rule-amount">{{ t('ruleAmount') }} ({{ currencySymbol }})</label>
+                        <input id="rule-amount" type="text" inputmode="decimal" v-model="newRule.amount" maxlength="12"
+                               :placeholder="t('ruleAmountPlaceholder')" aria-describedby="rule-amount-help" />
+                        <small id="rule-amount-help">{{ t('ruleAmountHelp') }}</small>
                     </div>
                     <div class="form-group">
                         <label>{{ t('categoryLabel') }} *</label>
@@ -3601,14 +4037,25 @@
             <div class="modal modal-account" role="dialog" aria-modal="true" aria-labelledby="modal-title-add-accounts">
                 <div class="modal-header">
                     <span class="material-icons" aria-hidden="true">playlist_add</span>
-                    <h3 id="modal-title-add-accounts">{{ t('addAccountsTitle', { bank: backendName(findBackend(addAccountsBackend)) }) }}</h3>
+                    <h3 id="modal-title-add-accounts">{{ addAccountsBackend ? t('addAccountsTitle', { bank: backendName(findBackend(addAccountsBackend)) }) : t('addAccountsFromBank') }}</h3>
                     <button class="modal-close" @click="closeAddAccounts" :aria-label="t('close')">
                         <span class="material-icons" aria-hidden="true">close</span>
                     </button>
                 </div>
                 <div class="modal-body">
-                    <p class="rules-help">{{ t('addAccountsHelp') }}</p>
-                    <template v-if="discovering">
+                    <!-- Opened from the + of the synchronized accounts: one of the banks already connected, or a new one -->
+                    <div v-if="addAccountsPicking" class="form-group">
+                        <label for="add-accounts-bank">{{ t('addAccountsBank') }}</label>
+                        <select id="add-accounts-bank" :value="addAccountsBackend" @change="chooseAddAccountsBackend($event.target.value)" :disabled="followingAccounts">
+                            <option value="">{{ t('addAccountsChooseBank') }}</option>
+                            <option v-for="b in bankBackends" :key="b.name" :value="b.name">{{ backendName(b) }}</option>
+                            <!-- Connection of a new bank (another login of a connected one too) -->
+                            <option value="+new">{{ t('connectNewBank') }}</option>
+                        </select>
+                    </div>
+                    <p v-if="addAccountsBackend" class="rules-help">{{ t('addAccountsHelp') }}</p>
+                    <template v-if="!addAccountsBackend"></template>
+                    <template v-else-if="discovering">
                         <div class="transactions-hint" role="status">
                             <span class="material-icons spin inline-icon" aria-hidden="true">sync</span>{{ t('discovering') }}
                         </div>
@@ -3839,11 +4286,18 @@
                         <input type="checkbox" v-model="budgetUseChildren" />
                         {{ t('budgetUseChildren', { amount: formatAmount(budgetToEdit.children_budget) + ' ' + currencySymbol }) }}
                     </label>
-                    <template v-if="!budgetUseChildren">
+                    <label v-else class="setup-checkbox">
+                        <input type="checkbox" v-model="budgetNone" />
+                        {{ t('budgetNone') }}
+                    </label>
+                    <template v-if="!budgetUseChildren && !budgetNone">
                         <label for="budget-edit-amount">{{ Number(budgetToEdit.children) > 0 ? t('budgetOverrideLabel') : t('budgetEditLabel') }}</label>
                         <input id="budget-edit-amount" type="number" step="0.01" min="0" v-model="budgetNewValue" @keydown.enter="submitBudgetEdit" />
                     </template>
                     <p v-if="Number(budgetToEdit.children) > 0" class="rules-help">{{ t('budgetChildrenHelp') }}</p>
+                    <label for="budget-edit-note">{{ t('budgetNoteLabel') }}</label>
+                    <textarea id="budget-edit-note" class="budget-edit-note" rows="2" maxlength="200" v-model="budgetNote"
+                              :placeholder="t('budgetNotePlaceholder')"></textarea>
                 </div>
                 <div class="modal-footer">
                     <button class="btn-secondary" @click="closeBudgetModal">
@@ -3941,17 +4395,23 @@
         <!-- Confirmation modal (askConfirm): last of the modals, on top of the others. While
              its action runs, it stays open with a loader: no closing, Escape included -->
         <div v-if="confirmDialog" class="modal-overlay" @click.self="cancelConfirm">
-            <div class="modal modal-confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title"
-                 aria-describedby="confirm-dialog-message" :aria-busy="confirmDialog.busy ? 'true' : 'false'">
+            <div class="modal modal-confirm" :class="{ 'is-danger': confirmDialog.danger }" role="dialog" aria-modal="true"
+                 aria-labelledby="confirm-dialog-title" :aria-describedby="confirmDialog.warning ? 'confirm-dialog-message confirm-dialog-warning' : 'confirm-dialog-message'"
+                 :aria-busy="confirmDialog.busy ? 'true' : 'false'">
                 <div class="modal-header">
-                    <span class="material-icons" aria-hidden="true">{{ confirmDialog.icon }}</span>
+                    <span class="confirm-icon" aria-hidden="true"><span class="material-icons">{{ confirmDialog.icon }}</span></span>
                     <h3 id="confirm-dialog-title">{{ confirmDialog.title }}</h3>
                     <button class="modal-close" @click="cancelConfirm" :disabled="confirmDialog.busy" :aria-label="t('close')">
                         <span class="material-icons" aria-hidden="true">close</span>
                     </button>
                 </div>
                 <div class="modal-body">
-                    <p id="confirm-dialog-message">{{ confirmDialog.message }}</p>
+                    <p id="confirm-dialog-message" class="confirm-message">{{ confirmDialog.message }}</p>
+                    <!-- Consequence of the action, apart from the question -->
+                    <p v-if="confirmDialog.warning" class="confirm-warning">
+                        <span class="material-icons" aria-hidden="true">warning</span>
+                        <span id="confirm-dialog-warning">{{ confirmDialog.warning }}</span>
+                    </p>
                     <div v-if="confirmDialog.error" class="sync-step-error confirm-error" role="alert">{{ confirmDialog.error }}</div>
                 </div>
                 <div class="modal-footer">

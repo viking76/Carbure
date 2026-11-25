@@ -74,6 +74,10 @@ test('the insights and the trends follow the transactions and the budgets', () =
     }
 });
 
+test('the trends follow the settings: their custom charts are shared by the household', () => {
+    assert.ok(TAB_KINDS.trends.includes('settings'));
+});
+
 test('each answer tells whether the open tab is still up to date, without polling', async () => {
     fakeDocument();
     let versions = { transactions: 1, budgets: 1, settings: 1 };

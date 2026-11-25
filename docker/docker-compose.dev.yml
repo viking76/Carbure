@@ -25,9 +25,10 @@ services:
     environment:
       DB_NAME: carbure_dev
       SYNC_INTERVAL: !reset null
-    # Same check as the image, more often: start.sh waits for it
+    # Same check as the image, more often while starting: start.sh waits for it,
+    # then at the interval of the image (5 minutes)
     healthcheck:
-      interval: 2s
+      start_interval: 2s
       start_period: 60s
     restart: "no"
 

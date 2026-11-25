@@ -163,7 +163,7 @@ A question that isn't here? Ask it on the
 ??? question "How do budgets work?"
     A budget is an **amount per category and per month**; a parent category is the sum of
     its subcategories, or its own amount. Each card shows what is left or the overrun, and
-    a button copies the budgets of the previous month. Every user can set the amounts. See
+    a button copies the budgets of the previous month when the month has none yet. Every user can set the amounts. See
     [Budgets](fonctionnalites.md#budgets).
 
 ??? question "Can I create my own indicators?"

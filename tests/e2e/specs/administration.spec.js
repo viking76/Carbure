@@ -111,6 +111,20 @@ test('an administrator sees the configuration and changes the safe settings', as
     await expect(page.locator('#config-woob_transactions')).toHaveValue('250');
 });
 
+test('the relabeling of the synchronized transactions is off by default, with its warning (#501)', async ({ adminPage: page }) => {
+    await openAdministration(page, 'tabSettings');
+    const row = page.locator('.config-row').filter({ has: page.locator('code', { hasText: /^woob_relabel$/ }) });
+    await expect(row.locator('.config-help')).toHaveText(tr('configHelp_woob_relabel'));
+    await expect(row.locator('.config-warning')).toContainText(tr('configWarning_woob_relabel'));
+    await expect(page.locator('#config-woob_relabel')).not.toBeChecked();
+
+    // Switched on and saved
+    await row.locator('.toggle-switch').click();
+    await page.getByRole('button', { name: tr('save') }).click();
+    await expect(page.locator('.toast')).toHaveText(tr('configSaved'));
+    await expect(page.locator('#config-woob_relabel')).toBeChecked();
+});
+
 test('an administrator gets the request that starts the synchronization', async ({ adminPage: page }) => {
     await openAdministration(page, 'tabSync');
     await expect(page.getByRole('heading', { name: tr('syncCommandTitle') })).toBeVisible();

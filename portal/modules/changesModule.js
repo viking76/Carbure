@@ -17,13 +17,13 @@ export const RELOAD_DELAY = 300;
 
 /**
  * Kinds of data shown by each tab: the insights and the trends are computed from the
- * transactions and the budgets
+ * transactions and the budgets; the custom charts of the trends are a setting
  */
 export const TAB_KINDS = {
     transactions: ['transactions', 'categories', 'accounts'],
     budget: ['budgets', 'transactions', 'categories'],
     insights: ['insights', 'transactions', 'budgets', 'categories'],
-    trends: ['transactions', 'budgets', 'categories'],
+    trends: ['transactions', 'budgets', 'categories', 'settings'],
     rules: ['categories'],
     categories: ['categories'],
     accounts: ['accounts'],

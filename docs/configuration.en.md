@@ -23,7 +23,7 @@ Git and must never be published. After a manual change, nothing needs to be rest
 
     The keys marked ✏️ in the tables below can be changed there directly: `log_level`,
     `log_retention_days`, `savings_category`, `public_url`, `currency`, `next_month_day`, `update_check`, `woob_transactions`,
-    `woob_logging`, `woob_debug`, `woob_auto_update`, `woob_2fa_wait`, `woob_2fa_retries`,
+    `woob_logging`, `woob_debug`, `woob_auto_update`, `woob_relabel`, `woob_2fa_wait`, `woob_2fa_retries`,
     `push_api_key` and the
     SMTP settings (`smtp_host`, `smtp_port`, `smtp_encryption`, `smtp_auth`, `smtp_username`,
     `smtp_password`, `smtp_from`, `smtp_from_name`). Each value is
@@ -96,6 +96,7 @@ transaction.
 | `woob_logging` ✏️ | woob log level, on its error output (never in a file): `debug` (`--debug`), `info` (`--verbose`), `warning` (default), `error`/`critical` (`--quiet`) |
 | `woob_debug` ✏️ | `true` to run woob with `--debug` (takes precedence over `woob_logging`), log its full output and show it in the portal sync log (administrators) |
 | `woob_auto_update` ✏️ | `true` to let woob update its modules (`--auto-update`, once the woob repository is trusted, see [Security](securite.md)) |
+| `woob_relabel` ✏️ | `false` by default. `true`: when a woob module changes the label of transactions already synchronized (a fix of the module), the synchronization gives the new label to the saved transaction instead of saving it a second time. A transaction received with an unknown label replaces the one transaction of the same account, real date and amount that the bank no longer sends; category, tags and checking are kept. If there are several (two payments of the same amount the same day), nothing is guessed. Risk: two real distinct transactions of the same amount the same day, only one of which is still sent, would be merged |
 | `woob_2fa_wait` ✏️ | Scheduled sync: seconds to wait (0 to 300, 15 by default) before re-syncing an account whose bank asks for approval in its app |
 | `woob_2fa_retries` ✏️ | Scheduled sync: number of retries after this request (0 to 5, 1 by default; 0 to not retry) |
 

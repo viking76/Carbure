@@ -203,7 +203,10 @@ test('a user sets up, renews and disables his app from his profile', async ({ us
     const code = (await block.locator('.mfa-recovery-codes li').nth(1).textContent()).trim();
     await block.getByLabel(tr('mfaCodeOrRecovery')).fill(code);
     await block.getByRole('button', { name: tr('mfaDisable') }).click();
-    await page.getByRole('dialog').getByRole('button', { name: tr('mfaDisable') }).click();
+    const disable = page.getByRole('dialog', { name: tr('mfaDisableTitle') });
+    await expect(disable.locator('#confirm-dialog-message')).toHaveText(tr('mfaDisableConfirm'));
+    await expect(disable.locator('#confirm-dialog-warning')).toHaveText(tr('mfaDisableWarning'));
+    await disable.getByRole('button', { name: tr('mfaDisable') }).click();
     await expect(block).toContainText(tr('mfaOff'));
     await expect(block.getByRole('button', { name: tr('mfaSetupButton') })).toBeVisible();
 });
@@ -214,8 +217,17 @@ test('an administrator resets the second factor of a user who lost his phone', a
 
     await openTab(page, tr('tabUsers'));
     await page.getByRole('button', { name: `${tr('mfaReset')} marie` }).click();
-    await expect(page.getByRole('dialog')).toContainText(tr('mfaResetConfirm', { username: 'marie' }));
-    await page.getByRole('dialog').getByRole('button', { name: tr('mfaReset') }).click();
+    // The question naming the user, its consequences in a warning, cancel focused
+    const dialog = page.getByRole('dialog', { name: tr('mfaReset') });
+    await expect(dialog.locator('#confirm-dialog-message')).toHaveText(tr('mfaResetConfirm', { username: 'marie' }));
+    await expect(dialog.locator('#confirm-dialog-warning')).toHaveText(tr('mfaResetWarning'));
+    await expect(dialog).toHaveAccessibleDescription(`${tr('mfaResetConfirm', { username: 'marie' })} ${tr('mfaResetWarning')}`);
+    await expect(dialog.getByRole('button', { name: tr('cancel') })).toBeFocused();
+    // Cancel and the action side by side on one line
+    const cancelBox = await dialog.getByRole('button', { name: tr('cancel') }).boundingBox();
+    const resetBox = await dialog.getByRole('button', { name: tr('mfaResetButton') }).boundingBox();
+    expect(Math.abs(cancelBox.y - resetBox.y)).toBeLessThan(2);
+    await dialog.getByRole('button', { name: tr('mfaResetButton') }).click();
     await expect(page.locator('.toast')).toHaveText(tr('mfaResetDone', { username: 'marie' }));
 
     // She registers a new app at her next login
